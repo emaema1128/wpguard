@@ -1,0 +1,89 @@
+# WPGuard Sentinel (各サイト用プラグイン)
+
+各 WordPress サイトの中で動き、ログイン攻撃を防ぎ、管理者の追加などを Slack にすぐ通知します。
+ファイルの監視はサーバー側の監視エージェント (`../agent`) が担当します。
+
+mu-plugin (必ず使うプラグイン) として入れるので、管理画面から無効化できません。
+
+## 機能
+
+| ID | 機能 | 内容 |
+|---|---|---|
+| P-01 | ログイン試行の制限 | 15 分以内に 5 回失敗した IP を 15 分ロック。ロック中は正しいパスワードでも入れない。ロックしたら試されたユーザー名と一緒に 🟡警告 |
+| | 管理者の新しい IP | 管理者が、これまでに使ったことのない IP からログインしたら 🟡警告 |
+| | ユーザー名を探らせない | 「ユーザーが存在しない」と「パスワードが違う」を同じメッセージにする |
+| P-02 | 管理者の監視 | 管理者の作成・昇格を 🔴緊急。DB を直接書き換えて追加された管理者も、5 分おきの点検で 🔴緊急 |
+| P-03 | プラグイン/テーマの監視 | 有効化・インストール・テーマ変更を 🟡警告。ログインしていない状態での有効化 (マルウェアの典型) は 🔴緊急 |
+| P-04 | ファイル編集の禁止 | 管理画面のプラグイン/テーマ編集機能を無効にする |
+| P-05 | XML-RPC・ユーザー列挙 | `xmlrpc.php` を 403 にする。REST API のユーザー一覧、`?author=1`、ユーザーのサイトマップ、oEmbed の投稿者名を隠す |
+| P-06 | uploads での PHP 実行禁止 | `uploads/.htaccess` を作る。消されたら作り直して 🟡警告 |
+
+Slack への送信は、ページを表示し終わってから行います。送れなかった通知は保存して、5 分おきに再送します。
+
+## 動作環境
+
+- WordPress 5.9 以上、PHP 7.4 以上
+- Apache (P-06 の `.htaccess` のため。Apache 本体の設定でも禁止しておくことを推奨。ルートの README を参照)
+
+## インストール
+
+### 1. 共通設定を作る (全サイトで 1 回だけ)
+
+```bash
+sudo mkdir -p /etc/wpguard
+sudo cp sentinel.example.php /etc/wpguard/sentinel.php
+sudo chown root:root /etc/wpguard/sentinel.php
+sudo chmod 644 /etc/wpguard/sentinel.php
+sudo vi /etc/wpguard/sentinel.php     # WPGUARD_SLACK_WEBHOOK を設定
+```
+
+PHP の `open_basedir` で `/etc` が読めないサイトは、そのサイトの `wp-config.php` で定数を直接定義してください。
+
+```php
+define('WPGUARD_SLACK_WEBHOOK', 'https://hooks.slack.com/services/...');
+```
+
+### 2. 全サイトに配置する
+
+```bash
+sudo ./install.sh --dry-run /var/www   # 対象のサイトを確認
+sudo ./install.sh /var/www
+```
+
+更新するときも同じコマンドです。プラグインのファイルは root 所有になり、Web サーバーのユーザーからは書き換えられません。
+
+**監視エージェントの通知について**: 配置すると、監視エージェントが「mu-plugins 内のファイルが作成されました」「uploads/.htaccess が作成されました」を 🔴緊急で通知します。自分たちの作業なので、確認したら `wpguard ack --site=<サイト> --all` で確認済みにしてください。
+
+## サイトごとの設定
+
+サイトの `wp-config.php` で定義した定数は、共通設定より優先されます。
+
+| 定数 | 既定値 | 内容 |
+|---|---|---|
+| `WPGUARD_SLACK_WEBHOOK` | `''` | Slack の Incoming Webhook URL |
+| `WPGUARD_SITE_NAME` | サイトのドメイン | 通知に表示する名前 |
+| `WPGUARD_SLACK_MENTION` | `'<!channel>'` | 🔴緊急に付けるメンション |
+| `WPGUARD_NOTIFY_INFO` | `false` | 🔵情報 (更新・無効化など) も通知する |
+| `WPGUARD_TIMEZONE` | `'Asia/Tokyo'` | 通知の時刻 |
+| `WPGUARD_LOGIN_MAX_RETRIES` | `5` | ロックするまでの失敗回数 |
+| `WPGUARD_LOGIN_WINDOW` | `900` | 失敗を数える期間 (秒) |
+| `WPGUARD_LOGIN_LOCKOUT` | `900` | ロックする時間 (秒) |
+| `WPGUARD_TRUSTED_PROXIES` | `[]` | Cloudflare などのプロキシの IP。ここからの接続だけ `X-Forwarded-For` を信じる |
+| `WPGUARD_ALLOW_XMLRPC` | `false` | **Jetpack や WordPress アプリを使うサイトは `true` に** |
+| `WPGUARD_ALLOW_FILE_EDIT` | `false` | 管理画面でのファイル編集を許可する |
+| `WPGUARD_SHARED_CONFIG` | `'/etc/wpguard/sentinel.php'` | 共通設定のパス |
+
+**Cloudflare などを使っている場合**: `WPGUARD_TRUSTED_PROXIES` を設定しないと、全員がプロキシの IP からアクセスしているように見えます。その結果、誰かが 5 回間違えると全員がロックされます。
+
+## 注意
+
+- Webhook URL は Web サーバーが読める場所に置くため、サイトを乗っ取られると読まれる可能性があります。漏れたら Slack で Webhook を作り直してください。
+- ログイン制限の記録には WordPress の transient を使います。オブジェクトキャッシュ (Redis など) を使っていても動きます。
+
+## テスト
+
+本物の WordPress (SQLite で動かすので MySQL は不要) を組み立てて、通しで試します。初回は `downloads.wordpress.org` からダウンロードします。
+
+```bash
+php tests/e2e.php
+```
