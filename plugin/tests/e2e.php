@@ -10,6 +10,10 @@
  *
  * Needs network access to downloads.wordpress.org the first time (downloads are cached).
  * Work directory: $WPGUARD_E2E_DIR, default <tmp>/wpguard-e2e. Uses ports 8080 and 9999.
+ *
+ * To run the site on Apache with another PHP version (Docker, official php images):
+ *   WPGUARD_E2E_IMAGE=php:7.4-apache php plugin/tests/e2e.php
+ * WordPress then runs on Apache + that PHP, and .htaccess rules are checked for real.
  */
 
 declare(strict_types=1);
@@ -23,6 +27,9 @@ $work = getenv('WPGUARD_E2E_DIR') ?: sys_get_temp_dir() . '/wpguard-e2e';
 $cache = "{$work}/cache";
 $site = "{$work}/site";
 $slackLog = "{$work}/slack.log";
+$image = (string) getenv('WPGUARD_E2E_IMAGE');
+const CONTAINER = 'wpguard-e2e';
+const DB_CONTAINER = 'wpguard-e2e-db';
 @mkdir($cache, 0777, true);
 
 $passed = 0;
@@ -54,10 +61,16 @@ function download(string $url, string $file): void
     }
 }
 /** Runs PHP code inside WordPress (as a separate request). */
+/** The PHP that runs WordPress: this machine's, or the one in the web server container. */
+function phpCmd(): string
+{
+    global $image;
+    return $image === '' ? 'php' : 'docker exec -u www-data ' . CONTAINER . ' php';
+}
 function wp(string $code): string
 {
     global $site;
-    return trim(sh('php ' . escapeshellarg(__DIR__ . '/wp-exec.php') . ' ' . escapeshellarg($site) . ' ' . escapeshellarg($code)));
+    return trim(sh(phpCmd() . ' ' . escapeshellarg(__DIR__ . '/wp-exec.php') . ' ' . escapeshellarg($site) . ' ' . escapeshellarg($code)));
 }
 /** @return array{status:int,headers:string,body:string} */
 function http(string $method, string $path, array $opts = []): array
@@ -100,9 +113,9 @@ function slack(): array
     file_put_contents($slackLog, '');
     return array_map(static fn ($l) => (string) json_decode($l, true)['text'], $lines);
 }
-function waitPort(int $port): void
+function waitPort(int $port, int $seconds = 5): void
 {
-    for ($i = 0; $i < 50; $i++) {
+    for ($i = 0; $i < $seconds * 10; $i++) {
         $s = @fsockopen('127.0.0.1', $port, $e, $es, 0.2);
         if ($s) {
             fclose($s);
@@ -115,19 +128,26 @@ function waitPort(int $port): void
 }
 
 // ---------------------------------------------------------------- build the site
+// Local mode: PHP's built-in server + SQLite.
+// Docker mode: Apache + the image's PHP + MariaDB, as on the production server.
 download('https://downloads.wordpress.org/release/wordpress-' . WP_VERSION . '.zip', "{$cache}/wordpress.zip");
-download('https://downloads.wordpress.org/plugin/sqlite-database-integration.latest-stable.zip', "{$cache}/sqlite.zip");
-
 sh('rm -rf ' . escapeshellarg($site) . ' ' . escapeshellarg("{$work}/unzip"));
 sh('unzip -q ' . escapeshellarg("{$cache}/wordpress.zip") . ' -d ' . escapeshellarg("{$work}/unzip"));
 rename("{$work}/unzip/wordpress", $site);
-sh('unzip -q ' . escapeshellarg("{$cache}/sqlite.zip") . ' -d ' . escapeshellarg("{$site}/wp-content/plugins"));
-$sqliteDir = "{$site}/wp-content/plugins/sqlite-database-integration";
-file_put_contents("{$site}/wp-content/db.php", str_replace(
-    ['{SQLITE_IMPLEMENTATION_FOLDER_PATH}', '{SQLITE_PLUGIN}'],
-    [$sqliteDir, 'sqlite-database-integration/load.php'],
-    file_get_contents("{$sqliteDir}/db.copy"),
-));
+
+if ($image === '') {
+    download('https://downloads.wordpress.org/plugin/sqlite-database-integration.latest-stable.zip', "{$cache}/sqlite.zip");
+    sh('unzip -q ' . escapeshellarg("{$cache}/sqlite.zip") . ' -d ' . escapeshellarg("{$site}/wp-content/plugins"));
+    $sqliteDir = "{$site}/wp-content/plugins/sqlite-database-integration";
+    file_put_contents("{$site}/wp-content/db.php", str_replace(
+        ['{SQLITE_IMPLEMENTATION_FOLDER_PATH}', '{SQLITE_PLUGIN}'],
+        [$sqliteDir, 'sqlite-database-integration/load.php'],
+        file_get_contents("{$sqliteDir}/db.copy"),
+    ));
+    [$dbUser, $dbPass, $dbHost] = ['', '', 'localhost'];
+} else {
+    [$dbUser, $dbPass, $dbHost] = ['root', 'root', '127.0.0.1:3306'];
+}
 @mkdir("{$site}/wp-content/uploads", 0777, true);
 
 $salts = '';
@@ -137,9 +157,9 @@ foreach (['AUTH_KEY', 'SECURE_AUTH_KEY', 'LOGGED_IN_KEY', 'NONCE_KEY', 'AUTH_SAL
 file_put_contents("{$site}/wp-config.php", <<<PHP
 <?php
 define('DB_NAME', 'wp');
-define('DB_USER', '');
-define('DB_PASSWORD', '');
-define('DB_HOST', 'localhost');
+define('DB_USER', '{$dbUser}');
+define('DB_PASSWORD', '{$dbPass}');
+define('DB_HOST', '{$dbHost}');
 \$table_prefix = 'wp_';
 {$salts}
 define('WP_HOME', 'http://127.0.0.1:8080');
@@ -168,7 +188,53 @@ $shared = strtr((string) file_get_contents("{$pluginSrc}/sentinel.example.php"),
 ]);
 file_put_contents("{$work}/sentinel.php", $shared);
 
-sh('php -r ' . escapeshellarg(
+// ---------------------------------------------------------------- servers
+file_put_contents($slackLog, '');
+$env = array_merge(getenv(), ['MOCK_SLACK_LOG' => $slackLog]);
+$null = ['file', '/dev/null', 'w'];
+$slackSrv = proc_open(['php', '-S', '127.0.0.1:9999', __DIR__ . '/mock-slack.php'], [0 => ['pipe', 'r'], 1 => $null, 2 => $null], $p1, null, $env);
+if ($image === '') {
+    $wpSrv = proc_open(['php', '-S', '127.0.0.1:8080', '-t', $site], [0 => ['pipe', 'r'], 1 => $null, 2 => $null], $p2, $site);
+} else {
+    $wpSrv = null;
+    exec('docker rm -f ' . CONTAINER . ' ' . DB_CONTAINER . ' 2>/dev/null');
+    // Containers share this machine's network, so Apache can reach the fake Slack on 127.0.0.1.
+    sh('docker run -d --name ' . DB_CONTAINER . ' --network host -e MARIADB_ROOT_PASSWORD=root -e MARIADB_DATABASE=wp mariadb:11');
+    sh('chmod -R a+rwX ' . escapeshellarg($site));
+    file_put_contents("{$work}/apache.conf", <<<CONF
+    Listen 8080
+    <VirtualHost *:8080>
+        DocumentRoot "{$site}"
+        <Directory "{$site}">
+            AllowOverride All
+            Require all granted
+        </Directory>
+    </VirtualHost>
+    CONF);
+    sh('docker run -d --name ' . CONTAINER . ' --network host'
+        . ' -v ' . escapeshellarg("{$work}:{$work}") . ' -v ' . escapeshellarg(__DIR__ . ':' . __DIR__)
+        . ' ' . escapeshellarg($image)
+        . ' sh -c ' . escapeshellarg("docker-php-ext-install mysqli >/dev/null 2>&1; echo > /etc/apache2/ports.conf && cp {$work}/apache.conf /etc/apache2/sites-enabled/000-default.conf && exec apache2-foreground"));
+}
+register_shutdown_function(static function () use ($slackSrv, $wpSrv): void {
+    proc_terminate($slackSrv);
+    if ($wpSrv !== null) {
+        proc_terminate($wpSrv);
+    } else {
+        exec('docker rm -f ' . CONTAINER . ' ' . DB_CONTAINER . ' 2>/dev/null');
+    }
+});
+waitPort(9999);
+waitPort(8080, 300);
+if ($image !== '') {
+    for ($i = 0; $i < 120 && trim((string) shell_exec('docker exec ' . DB_CONTAINER . ' mariadb -uroot -proot -e "select 1" 2>/dev/null | tail -1')) !== '1'; $i++) {
+        sleep(1);
+    }
+    echo 'Web サーバー: ' . str_replace("\n", ' / ', trim(sh('docker exec ' . CONTAINER . ' sh -c ' . escapeshellarg('apache2 -v | head -1; php -v | head -1')))) . "\n";
+    echo 'DB: MariaDB ' . trim(sh('docker exec ' . DB_CONTAINER . ' mariadb -uroot -proot -N -e "select version()"')) . "\n";
+}
+
+sh(phpCmd() . ' -r ' . escapeshellarg(
     "define('WP_INSTALLING', true); \$_SERVER['HTTP_HOST']='127.0.0.1:8080'; require '{$site}/wp-load.php';"
     . "require ABSPATH . 'wp-admin/includes/upgrade.php';"
     . "wp_install('E2E', 'admin', 'admin@example.com', true, '', '" . ADMIN_PASS . "');"
@@ -179,19 +245,6 @@ sh('php -r ' . escapeshellarg(
 copy("{$pluginSrc}/wpguard-sentinel.php", "{$site}/wp-content/mu-plugins/wpguard-sentinel.php");
 sh('cp -r ' . escapeshellarg("{$pluginSrc}/wpguard-sentinel") . ' ' . escapeshellarg("{$site}/wp-content/mu-plugins/"));
 $bobId = (int) wp("echo wp_insert_user(['user_login' => 'bob', 'user_pass' => 'bob-pass-1', 'user_email' => 'bob@example.com', 'role' => 'subscriber']);");
-
-// ---------------------------------------------------------------- servers
-file_put_contents($slackLog, '');
-$env = array_merge(getenv(), ['MOCK_SLACK_LOG' => $slackLog]);
-$null = ['file', '/dev/null', 'w'];
-$slackSrv = proc_open(['php', '-S', '127.0.0.1:9999', __DIR__ . '/mock-slack.php'], [0 => ['pipe', 'r'], 1 => $null, 2 => $null], $p1, null, $env);
-$wpSrv = proc_open(['php', '-S', '127.0.0.1:8080', '-t', $site], [0 => ['pipe', 'r'], 1 => $null, 2 => $null], $p2, $site);
-register_shutdown_function(static function () use ($slackSrv, $wpSrv): void {
-    proc_terminate($slackSrv);
-    proc_terminate($wpSrv);
-});
-waitPort(9999);
-waitPort(8080);
 
 // ---------------------------------------------------------------- tests
 section('有効化の確認');
@@ -212,6 +265,24 @@ wp("unlink('{$ht}'); delete_transient('wpguard_htaccess_check');");
 http('GET', '/');
 $m = slack();
 check(is_file($ht) && count($m) === 1 && str_contains($m[0], '作り直しました'), '消されたら作り直して🟡警告を通知');
+
+if ($image !== '') {
+    section('P-06: Apache で uploads の PHP が実行されないこと');
+    $up = "{$site}/wp-content/uploads/2026";
+    @mkdir($up, 0777, true);
+    file_put_contents("{$up}/shell.php", '<?php echo "EXECUTED";');
+    file_put_contents("{$up}/shell.PHP", '<?php echo "EXECUTED";');
+    file_put_contents("{$up}/shell.phtml", '<?php echo "EXECUTED";');
+    file_put_contents("{$up}/photo.jpg", 'JPEGDATA');
+    file_put_contents("{$site}/control.php", '<?php echo "EXECUTED";');
+    check(http('GET', '/control.php')['body'] === 'EXECUTED', '(対照: uploads の外の PHP は実行される)');
+    foreach (['shell.php', 'shell.PHP', 'shell.phtml'] as $f) {
+        $r = http('GET', "/wp-content/uploads/2026/{$f}");
+        check($r['status'] === 403 && !str_contains($r['body'], 'EXECUTED'), "uploads/{$f} は 403 で実行されない");
+    }
+    check(http('GET', '/wp-content/uploads/2026/photo.jpg')['status'] === 200, '画像は普通に表示できる');
+    unlink("{$site}/control.php");
+}
 
 section('P-05: XML-RPC とユーザー名の列挙を防ぐ');
 $r = http('POST', '/xmlrpc.php', ['body' => '<?xml version="1.0"?><methodCall><methodName>system.listMethods</methodName></methodCall>']);

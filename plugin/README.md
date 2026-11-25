@@ -82,8 +82,14 @@ sudo ./install.sh /var/www
 
 ## テスト
 
-本物の WordPress (SQLite で動かすので MySQL は不要) を組み立てて、通しで試します。初回は `downloads.wordpress.org` からダウンロードします。
+本物の WordPress を組み立てて、通しで試します。初回は `downloads.wordpress.org` からダウンロードします。
 
 ```bash
-php tests/e2e.php
+php tests/e2e.php                                     # PHP の内蔵サーバー + SQLite (手軽)
+WPGUARD_E2E_IMAGE=php:7.4-apache php tests/e2e.php    # Docker の Apache + PHP 7.4 + MariaDB (本番に近い)
+WPGUARD_E2E_IMAGE=php:8.3-apache php tests/e2e.php
 ```
+
+Docker で動かすと、uploads の PHP が Apache で実際に実行されないことも確かめます。
+
+確認済み: PHP 8.4 (内蔵サーバー) / Apache 2.4.54 + PHP 7.4.33 + MariaDB 11.8 / Apache 2.4.71 + PHP 8.3.37 + MariaDB 11.8
