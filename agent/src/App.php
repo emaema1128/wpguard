@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace WPGuard;
 
+use WPGuard\Checksums\ChecksumProvider;
+use WPGuard\Checksums\NullChecksums;
+use WPGuard\Checksums\WordPressOrgChecksums;
 use WPGuard\Notifier\Notifier;
 use WPGuard\Notifier\SlackNotifier;
 use WPGuard\Notifier\StdoutNotifier;
@@ -17,8 +20,13 @@ final class App
     /** @var resource|null */
     private $lock = null;
 
-    public function __construct(public readonly Config $config, ?Notifier $notifier = null, ?Logger $logger = null, bool $verbose = false)
-    {
+    public function __construct(
+        public readonly Config $config,
+        ?Notifier $notifier = null,
+        ?Logger $logger = null,
+        bool $verbose = false,
+        ?ChecksumProvider $checksums = null,
+    ) {
         date_default_timezone_set((string) $config->get('timezone'));
         $this->logger = $logger ?? new Logger((string) $config->get('log_file'), $verbose);
 
@@ -35,10 +43,17 @@ final class App
 
         $notifier ??= $this->makeNotifier();
         $this->notifications = new NotificationService($notifier, $this->db, $config, $this->logger);
+        $checksums ??= $config->get('checksums')
+            ? new WordPressOrgChecksums($this->db, $this->logger, (int) $config->get('checksum_timeout'))
+            : new NullChecksums();
+        $rulesFile = (string) ($config->get('rules_file') ?? dirname(__DIR__) . '/rules/patterns.php');
+
         $this->scanner = new Scanner(
             $this->db,
             new Hasher((int) $config->get('max_hash_bytes')),
             new Classifier(),
+            PatternScanner::fromFile($rulesFile, (int) $config->get('max_scan_bytes')),
+            new OfficialVerifier($checksums),
             (array) $config->get('exclude'),
         );
     }
@@ -120,15 +135,19 @@ final class App
 
             if ($baselineOnly) {
                 $isNew = $row['last_scan'] === null;
+                $body = sprintf("📁 `%s`\n📄 %d ファイルをベースラインとして記録しました", $site->path, $result->files);
+                $suspicious = count($result->findings);
+                if ($suspicious > 0) {
+                    $body .= "\n⚠️ この時点で {$suspicious} 件の怪しいファイルが見つかりました。続けて通知します。";
+                }
                 $this->notifications->notifyEvent(
-                    Severity::Info,
+                    $suspicious > 0 ? Severity::Warning : Severity::Info,
                     $name,
                     $isNew ? '監視を開始しました' : 'ベースラインを作り直しました',
-                    sprintf("📁 `%s`\n📄 %d ファイルをベースラインとして記録しました", $site->path, $result->files),
+                    $body,
                 );
-            } else {
-                $this->notifications->notifyPending($site, $now);
             }
+            $this->notifications->notifyPending($site, $now);
             $results[$name] = $result;
         }
 

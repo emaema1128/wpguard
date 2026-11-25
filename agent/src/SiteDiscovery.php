@@ -50,7 +50,8 @@ final class SiteDiscovery
             if (isset($sites[$name])) {
                 $name = $path;
             }
-            $sites[$name] = new Site($path, $name, self::readVersion($path));
+            [$version, $locale] = self::readVersion($path);
+            $sites[$name] = new Site($path, $name, $version, null, $locale);
         }
         ksort($sites, SORT_STRING);
         return $sites;
@@ -99,12 +100,15 @@ final class SiteDiscovery
         return implode('/', $parts);
     }
 
-    private static function readVersion(string $path): ?string
+    /** @return array{?string,?string} version, locale of localized builds (e.g. ja) */
+    private static function readVersion(string $path): array
     {
         $src = @file_get_contents("{$path}/wp-includes/version.php", false, null, 0, 64 * 1024);
-        if ($src !== false && preg_match('/\$wp_version\s*=\s*[\'"]([^\'"]+)[\'"]/', $src, $m)) {
-            return $m[1];
+        if ($src === false) {
+            return [null, null];
         }
-        return null;
+        $version = preg_match('/\$wp_version\s*=\s*[\'"]([^\'"]+)[\'"]/', $src, $m) ? $m[1] : null;
+        $locale = preg_match('/\$wp_local_package\s*=\s*[\'"]([^\'"]+)[\'"]/', $src, $m) ? $m[1] : null;
+        return [$version, $locale];
     }
 }

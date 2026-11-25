@@ -71,6 +71,18 @@ final class Database
                 PRAGMA user_version = 1;
                 SQL);
         }
+        if ($version < 2) {
+            $this->pdo->exec(<<<'SQL'
+                ALTER TABLE findings ADD COLUMN detail TEXT;
+                CREATE INDEX findings_path ON findings (site_id, path);
+                CREATE TABLE checksum_cache (
+                    key TEXT PRIMARY KEY,
+                    body TEXT,
+                    fetched_at INTEGER NOT NULL
+                ) WITHOUT ROWID;
+                PRAGMA user_version = 2;
+                SQL);
+        }
     }
 
     public function begin(): void
@@ -157,13 +169,13 @@ final class Database
     public function addFinding(int $siteId, Finding $f, int $now): int
     {
         $this->insertFinding ??= $this->pdo->prepare(<<<'SQL'
-            INSERT INTO findings (site_id, path, kind, severity, rule, message, sha256, status, detected_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO findings (site_id, path, kind, severity, rule, message, sha256, detail, status, detected_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             SQL);
         // Info-level changes (e.g. new images in uploads) are kept for the record but need no action.
         $status = $f->severity === Severity::Info ? 'info' : 'open';
         $this->insertFinding->execute([
-            $siteId, $f->path, $f->kind, $f->severity->value, $f->rule, $f->message, $f->sha256, $status, $now,
+            $siteId, $f->path, $f->kind, $f->severity->value, $f->rule, $f->message, $f->sha256, $f->detail, $status, $now,
         ]);
         return (int) $this->pdo->lastInsertId();
     }
@@ -223,7 +235,7 @@ final class Database
         $out = [];
         foreach ($st->fetchAll() as $r) {
             $out[] = new Finding(
-                $r['kind'], $r['path'], Severity::from($r['severity']), $r['rule'], $r['message'], $r['sha256'], (int) $r['id'],
+                $r['kind'], $r['path'], Severity::from($r['severity']), $r['rule'], $r['message'], $r['sha256'], $r['detail'], (int) $r['id'],
             );
         }
         return $out;
@@ -236,6 +248,34 @@ final class Database
             $in = implode(',', array_fill(0, count($chunk), '?'));
             $this->pdo->prepare("UPDATE findings SET notified_at = ? WHERE id IN ({$in})")->execute([$now, ...$chunk]);
         }
+    }
+
+    /** Whether this exact problem (same file contents, same rule) was already recorded, in any status. */
+    public function hasFinding(int $siteId, string $path, ?string $sha256, string $rule): bool
+    {
+        $st = $this->pdo->prepare('SELECT 1 FROM findings WHERE site_id = ? AND path = ? AND sha256 IS ? AND rule = ? LIMIT 1');
+        $st->execute([$siteId, $path, $sha256, $rule]);
+        return $st->fetchColumn() !== false;
+    }
+
+    // ---- checksum cache ----
+
+    /** @return array{body:?string,fetched_at:int}|null */
+    public function cacheGet(string $key): ?array
+    {
+        $st = $this->pdo->prepare('SELECT body, fetched_at FROM checksum_cache WHERE key = ?');
+        $st->execute([$key]);
+        $row = $st->fetch();
+        return $row === false ? null : ['body' => $row['body'], 'fetched_at' => (int) $row['fetched_at']];
+    }
+
+    public function cachePut(string $key, ?string $body, int $now): void
+    {
+        $st = $this->pdo->prepare(
+            'INSERT INTO checksum_cache (key, body, fetched_at) VALUES (?, ?, ?)
+             ON CONFLICT (key) DO UPDATE SET body = excluded.body, fetched_at = excluded.fetched_at'
+        );
+        $st->execute([$key, $body, $now]);
     }
 
     // ---- notifications ----

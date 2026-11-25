@@ -37,6 +37,16 @@ return [
     // これより大きいファイルはハッシュを計算せず、サイズと日時だけで変更を判定します
     'max_hash_bytes' => 100 * 1024 * 1024,
 
+    // 怪しいコードを探すとき、1 ファイルの先頭から読む最大サイズ
+    'max_scan_bytes' => 5 * 1024 * 1024,
+
+    // 検出ルールのファイル (省略すると rules/patterns.php)
+    // 'rules_file' => '/opt/wpguard/rules/patterns.php',
+
+    // WordPress.org の公式チェックサムと照合する (api.wordpress.org と downloads.wordpress.org への通信が必要)
+    'checksums' => true,
+    'checksum_timeout' => 10,
+
     // Slack に通知する最低の重要度: critical / warning / info
     'notify_min_severity' => 'warning',
 

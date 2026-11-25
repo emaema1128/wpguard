@@ -82,6 +82,9 @@ final class NotificationService
         foreach ($findings as $f) {
             $lines[] = sprintf('%s *%s*', $f->severity->emoji(), self::esc($f->message));
             $lines[] = sprintf('      📄 `%s`  (#%d)', self::code($f->path), $f->id);
+            if ($f->detail !== null && $f->detail !== '') {
+                $lines[] = sprintf('      🔍 `%s`', self::code($f->detail));
+            }
         }
         $lines[] = sprintf('🕐 %s', date('Y-m-d H:i', $now));
         $lines[] = $this->footer($site, $findings);

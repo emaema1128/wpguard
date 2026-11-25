@@ -12,7 +12,10 @@ declare(strict_types=1);
 require dirname(__DIR__) . '/src/bootstrap.php';
 
 use WPGuard\App;
+use WPGuard\Checksums\ChecksumProvider;
+use WPGuard\Checksums\NullChecksums;
 use WPGuard\Config;
+use WPGuard\PatternScanner;
 use WPGuard\Logger;
 use WPGuard\Notifier\Message;
 use WPGuard\Notifier\Notifier;
@@ -100,7 +103,7 @@ $config = Config::fromArray([
     'aggregate_threshold' => 10,
 ]);
 $notifier = new CaptureNotifier();
-$app = new App($config, $notifier, new Logger("{$tmp}/wpguard.log"));
+$app = new App($config, $notifier, new Logger("{$tmp}/wpguard.log"), false, new NullChecksums());
 $A = "{$www}/site-a.example.com/public_html";
 $t = time();
 
@@ -119,17 +122,21 @@ check($r['site-b']->files === $r['site-b/blog']->files, '入れ子の WordPress 
 check(!str_contains(implode(',', array_keys($app->db->files($sites['site-a.example.com']->id ?? 1))), 'cache/'), '除外パス (wp-content/cache) は記録しない');
 
 section('変更なし');
+sleep(2);
 $r = $app->scan(false, null, $t += 60);
 check(count($notifier->take()) === 0, '通知なし');
-check($r['site-b']->hashed === 0, '簡易スキャンではハッシュを再計算しない');
+check($r['site-b']->hashed > 0, '記録した直後のファイルは、次のスキャンで 1 回だけ確かめ直す');
+$r = $app->scan(false, null, $t += 60);
+check($r['site-b']->hashed === 0, 'それ以降の簡易スキャンではハッシュを再計算しない');
 
 section('uploads に PHP を設置される');
 file_put_contents("{$A}/wp-content/uploads/2026/11/x.php", '<?php eval(base64_decode($_POST["c"]));');
 $r = $app->scan(false, null, $t += 60);
 $f = $r['site-a.example.com']->findings;
-check(count($f) === 1 && $f[0]->severity->value === 'critical' && $f[0]->rule === 'uploads-php', '🔴緊急 (uploads-php) として検知');
+check(count($f) === 1 && $f[0]->severity->value === 'critical' && $f[0]->rule === 'eval-decode', '🔴緊急 (eval-decode) として検知');
+check(str_contains((string) $f[0]->detail, 'eval(base64_decode('), '一致したコードの抜粋を残す');
 $m = $notifier->take();
-check(count($m) === 1 && str_contains($m[0]->text, '<!channel>') && str_contains($m[0]->text, 'x.php'), '@channel 付きで Slack に通知');
+check(count($m) === 1 && str_contains($m[0]->text, '<!channel>') && str_contains($m[0]->text, 'x.php') && str_contains($m[0]->text, '🔍'), '@channel と抜粋付きで Slack に通知');
 echo "\n" . preg_replace('/^/m', '      | ', $m[0]->text) . "\n";
 
 section('更新日時を偽装した改ざん (touch -r)');
@@ -243,6 +250,8 @@ rename("{$tmp}/blog-moved", "{$www}/site-b/blog");
 $app->scan(false, null, $t += 60);
 $m = $notifier->take();
 check(count($m) === 1 && str_contains($m[0]->text, '再び見つかりました'), '戻ったら通知する');
+
+require __DIR__ . '/step2.php';
 
 // ---------------------------------------------------------------- cleanup
 exec('rm -rf ' . escapeshellarg($tmp));

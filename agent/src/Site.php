@@ -11,6 +11,7 @@ final class Site
         public readonly string $name,
         public readonly ?string $wpVersion,
         public ?int $id = null,
+        public readonly ?string $locale = null,
     ) {
     }
 }
