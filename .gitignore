@@ -1,0 +1,11 @@
+# 設定ファイル (Slack の Webhook URL を含むため、リポジトリには入れない)
+agent/config.php
+
+# 実行時に作られるデータ・ログ
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.lock
+*.log
+
+.DS_Store
