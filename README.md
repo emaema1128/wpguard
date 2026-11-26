@@ -17,8 +17,9 @@ VPS 上の複数の WordPress サイトを監視し、マルウェアの設置�
 | 重要度の判定 | uploads 内の PHP、`.htaccess`、`wp-config.php`、mu-plugins、drop-in、公開ディレクトリ直下の見慣れない PHP は 🔴緊急 |
 | Slack 通知 | 重複を抑止し、大量の変更は 1 通にまとめる。送信に失敗したら次回のスキャンで再送する |
 | サイトの消失検知 | 監視していたサイトが見つからなくなったら通知する |
+| 隔離 | 検知したファイルをサイトから取り除き、root だけが読める場所に保管する。元に戻せる。30 日で自動削除 |
 
-**まだできないこと**: 疑わしいファイルの隔離、DB 内に注入されたスクリプトの検出、二要素認証。
+**まだできないこと**: DB 内に注入されたスクリプトの検出、二要素認証。
 
 **照合できないもの**: テーマと、公式リポジトリにない有料プラグインは比べる相手がないため、場所による判定とパターン検出だけになります (更新すると 🟡警告で通知されます)。
 
@@ -120,6 +121,27 @@ wpguard ack --site=example.com --all
 wpguard baseline --site=example.com  # 現在の状態を正常として記録し直す (有料プラグインやテーマの更新後など)
 wpguard help
 ```
+
+### マルウェアを見つけたら
+
+```bash
+wpguard quarantine 12                # 検知 #12 のファイルを隔離する (Slack の通知にもコマンドが出ます)
+wpguard quarantine --site=example.com --path=wp-content/uploads/x.php
+wpguard quarantine --list            # 隔離したファイルの一覧
+wpguard restore 3                    # 隔離 ID #3 を元に戻す (誤検知だったとき)
+```
+
+隔離したファイルは `/var/lib/wpguard/quarantine/` に保管されます (調査用に中身はそのまま)。
+
+**WordPress 本体・プラグイン・テーマのファイルは隔離できません** (サイトが動かなくなるため)。改ざんされていたら入れ直してください。どうしても隔離する場合は `--force` を付けます。
+
+```bash
+# WP-CLI の例 (サイトのディレクトリで、サイトの所有者として実行)
+wp core download --force --skip-content --version=$(wp core version)
+wp plugin install <プラグイン名> --force
+```
+
+ファイルを取り除いても、侵入された原因 (古いプラグイン、漏れたパスワードなど) が残っていれば、また置かれます。管理者のパスワード変更と、原因の調査も行ってください。
 
 ## 検出ルールの調整
 

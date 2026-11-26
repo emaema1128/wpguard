@@ -20,6 +20,11 @@ final class Cli
           findings [--site=NAME]         未対応の検知の一覧
           ack <ID>... | --site=NAME --all | --all
                                          検知を「確認済み」にする
+          quarantine <ID> [--force]      検知したファイルを隔離する (サイトから取り除き、安全な場所に保管)
+          quarantine --site=NAME --path=PATH [--force]
+                                         指定したファイルを隔離する
+          quarantine --list              隔離したファイルの一覧
+          restore <隔離ID>                隔離したファイルを元に戻す
           test-slack                     Slack にテスト通知を送る
           help                           このヘルプ
 
@@ -54,6 +59,8 @@ final class Cli
                 'baseline' => $this->baseline($app, $opts),
                 'findings' => $this->findings($app, $opts),
                 'ack' => $this->ack($app, $args, $opts),
+                'quarantine' => $this->quarantine($app, $args, $opts),
+                'restore' => $this->restore($app, $args),
                 'test-slack' => $this->testSlack($app),
                 default => $this->unknown($command),
             };
@@ -152,6 +159,54 @@ final class Cli
             $n = $app->db->ackFindings($ids, $now);
         }
         fwrite(STDOUT, "{$n} 件を確認済みにしました\n");
+        return 0;
+    }
+
+    private function quarantine(App $app, array $args, array $opts): int
+    {
+        if (isset($opts['list'])) {
+            $rows = $app->db->quarantineEntries();
+            if ($rows === []) {
+                fwrite(STDOUT, "隔離したファイルはありません\n");
+                return 0;
+            }
+            $table = [['隔離ID', '状態', 'サイト', 'ファイル', '隔離日時', 'サイズ']];
+            foreach ($rows as $q) {
+                $state = $q['restored_at'] !== null ? '元に戻した' : ($q['purged_at'] !== null ? '削除済み' : '保管中');
+                $table[] = [(string) $q['id'], $state, $q['site_name'], $q['path'], date('Y-m-d H:i', (int) $q['quarantined_at']), (string) $q['size']];
+            }
+            self::printTable($table);
+            return 0;
+        }
+        if (!$app->lock()) {
+            fwrite(STDERR, "別の wpguard が実行中です。少し待ってからもう一度実行してください\n");
+            return 3;
+        }
+        $force = isset($opts['force']);
+        if ($args !== [] && ctype_digit($args[0])) {
+            $r = $app->isolateFinding((int) $args[0], $force);
+        } elseif (self::siteOpt($opts) !== null && isset($opts['path']) && $opts['path'] !== true) {
+            $r = $app->isolatePath((string) self::siteOpt($opts), (string) $opts['path'], $force);
+        } else {
+            fwrite(STDERR, "検知の ID か、--site と --path を指定してください (例: wpguard quarantine 12)\n");
+            return 1;
+        }
+        fwrite(STDOUT, sprintf("隔離しました: %s %s (隔離 ID #%d)\n元に戻すには: wpguard restore %d\n", $r['site'], $r['path'], $r['id'], $r['id']));
+        return 0;
+    }
+
+    private function restore(App $app, array $args): int
+    {
+        if (count($args) !== 1 || !ctype_digit($args[0])) {
+            fwrite(STDERR, "隔離 ID を指定してください (例: wpguard restore 3)\n");
+            return 1;
+        }
+        if (!$app->lock()) {
+            fwrite(STDERR, "別の wpguard が実行中です。少し待ってからもう一度実行してください\n");
+            return 3;
+        }
+        $q = $app->restore((int) $args[0]);
+        fwrite(STDOUT, "元に戻しました: {$q['site_name']} {$q['path']}\n");
         return 0;
     }
 

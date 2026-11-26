@@ -17,6 +17,7 @@ final class App
     public readonly Logger $logger;
     public readonly NotificationService $notifications;
     private Scanner $scanner;
+    private ?Quarantine $quarantine = null;
     /** @var resource|null */
     private $lock = null;
 
@@ -152,7 +153,77 @@ final class App
         }
 
         $this->db->pruneNotifications($now - 30 * 86400);
+        if ($full && $only === null) {
+            $purged = $this->quarantine()->purge($now - (int) $this->config->get('quarantine_days') * 86400, $now);
+            if ($purged > 0) {
+                $this->logger->info("保管期間を過ぎた隔離ファイルを {$purged} 件削除しました");
+            }
+        }
         return $results;
+    }
+
+    public function quarantine(): Quarantine
+    {
+        return $this->quarantine ??= new Quarantine($this->db, (string) $this->config->get('data_dir') . '/quarantine');
+    }
+
+    /** @return array{id:int,path:string,sha256:?string,site:string} */
+    public function isolateFinding(int $findingId, bool $force, ?int $now = null): array
+    {
+        $f = $this->db->finding($findingId);
+        if ($f === null) {
+            throw new \RuntimeException("検知 #{$findingId} が見つかりません (wpguard findings で確認できます)");
+        }
+        if ($f['status'] === 'quarantined') {
+            foreach ($this->db->quarantineEntries() as $q) {
+                if ((int) $q['site_id'] === (int) $f['site_id'] && $q['path'] === $f['path'] && $q['restored_at'] === null) {
+                    throw new \RuntimeException("検知 #{$findingId} のファイルは、すでに隔離しています (隔離 ID #{$q['id']})");
+                }
+            }
+        }
+        if ($f['kind'] === Finding::DELETED) {
+            throw new \RuntimeException("検知 #{$findingId} はファイルが削除されたという検知なので、隔離するものはありません");
+        }
+        return $this->isolate($this->db->sites()[$f['site_path']], (string) $f['path'], $findingId, $force, $now ?? time());
+    }
+
+    /** @return array{id:int,path:string,sha256:?string,site:string} */
+    public function isolatePath(string $siteName, string $path, bool $force, ?int $now = null): array
+    {
+        return $this->isolate($this->siteRow($siteName), $path, null, $force, $now ?? time());
+    }
+
+    /** @return array<string,mixed> */
+    public function restore(int $id, ?int $now = null): array
+    {
+        $q = $this->quarantine()->restore($id, $now ?? time());
+        $this->logger->info("隔離を解除しました: #{$id} {$q['site_name']} {$q['path']}");
+        $this->notifications->notifyEvent(Severity::Warning, (string) $q['site_name'], '隔離したファイルを元に戻しました', sprintf('📄 `%s`  (隔離 ID #%d)', str_replace('`', "'", (string) $q['path']), $id));
+        return $q;
+    }
+
+    /** @param array<string,mixed> $site */
+    private function isolate(array $site, string $path, ?int $findingId, bool $force, int $now): array
+    {
+        $r = $this->quarantine()->isolate($site, $path, $findingId, $force, $now);
+        $r['site'] = (string) $site['name'];
+        $this->logger->info("隔離しました: #{$r['id']} {$site['name']} {$r['path']}");
+        $this->notifications->notifyEvent(Severity::Info, (string) $site['name'], 'ファイルを隔離しました', sprintf(
+            "📄 `%s`\n🗄 隔離 ID #%d — 元に戻すには `wpguard restore %d`",
+            str_replace('`', "'", $r['path']), $r['id'], $r['id'],
+        ));
+        return $r;
+    }
+
+    /** @return array<string,mixed> */
+    public function siteRow(string $name): array
+    {
+        foreach ($this->db->sites() as $row) {
+            if ($row['name'] === $name) {
+                return $row;
+            }
+        }
+        throw new \RuntimeException("サイトが見つかりません: {$name} (wpguard sites で一覧を確認できます)");
     }
 
     /**

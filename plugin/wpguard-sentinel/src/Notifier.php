@@ -55,7 +55,7 @@ final class Notifier
         } catch (\Exception $e) {
             $tz = wp_timezone();
         }
-        $text .= "\n🕐 " . wp_date('Y-m-d H:i:s', null, $tz);
+        $text .= "\n🕐 " . wp_date('Y-m-d H:i', null, $tz);
         self::$queue[] = ['severity' => $severity, 'text' => $text];
     }
 
@@ -72,7 +72,7 @@ final class Notifier
         } else {
             $who = 'ログインしていない状態';
         }
-        return sprintf('👤 操作: %s  🌐 IP: `%s`', $who, self::esc(ClientIp::get()));
+        return sprintf('🛠️ 操作した人: %s  🌐 IP: `%s`', $who, self::esc(ClientIp::get()));
     }
 
     public static function flush(): void

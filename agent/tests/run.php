@@ -252,6 +252,7 @@ $m = $notifier->take();
 check(count($m) === 1 && str_contains($m[0]->text, '再び見つかりました'), '戻ったら通知する');
 
 require __DIR__ . '/step2.php';
+require __DIR__ . '/quarantine.php';
 
 // ---------------------------------------------------------------- cleanup
 exec('rm -rf ' . escapeshellarg($tmp));

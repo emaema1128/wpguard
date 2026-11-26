@@ -83,6 +83,28 @@ final class Database
                 PRAGMA user_version = 2;
                 SQL);
         }
+        if ($version < 3) {
+            $this->pdo->exec(<<<'SQL'
+                CREATE TABLE quarantine (
+                    id INTEGER PRIMARY KEY,
+                    site_id INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+                    finding_id INTEGER,
+                    path TEXT NOT NULL,
+                    stored TEXT,
+                    sha256 TEXT,
+                    size INTEGER NOT NULL,
+                    mode INTEGER NOT NULL,
+                    uid INTEGER NOT NULL,
+                    gid INTEGER NOT NULL,
+                    mtime INTEGER NOT NULL,
+                    is_link INTEGER NOT NULL DEFAULT 0,
+                    quarantined_at INTEGER NOT NULL,
+                    restored_at INTEGER,
+                    purged_at INTEGER
+                );
+                PRAGMA user_version = 3;
+                SQL);
+        }
     }
 
     public function begin(): void
@@ -256,6 +278,60 @@ final class Database
         $st = $this->pdo->prepare('SELECT 1 FROM findings WHERE site_id = ? AND path = ? AND sha256 IS ? AND rule = ? LIMIT 1');
         $st->execute([$siteId, $path, $sha256, $rule]);
         return $st->fetchColumn() !== false;
+    }
+
+    /** @return array<string,mixed>|null the finding with its site's path and name */
+    public function finding(int $id): ?array
+    {
+        $st = $this->pdo->prepare('SELECT f.*, s.path AS site_path, s.name AS site_name FROM findings f JOIN sites s ON s.id = f.site_id WHERE f.id = ?');
+        $st->execute([$id]);
+        $row = $st->fetch();
+        return $row === false ? null : $row;
+    }
+
+    /** Changes the status of every finding of one file (e.g. after quarantine). */
+    public function setFindingStatus(int $siteId, string $path, string $status, int $now, string $from = 'open'): void
+    {
+        $st = $this->pdo->prepare('UPDATE findings SET status = ?, resolved_at = ? WHERE site_id = ? AND path = ? AND status = ?');
+        $st->execute([$status, $now, $siteId, $path, $from]);
+    }
+
+    // ---- quarantine ----
+
+    /** @param array<string,mixed> $row */
+    public function insertQuarantine(array $row): int
+    {
+        $cols = implode(', ', array_keys($row));
+        $marks = implode(', ', array_fill(0, count($row), '?'));
+        $this->pdo->prepare("INSERT INTO quarantine ({$cols}) VALUES ({$marks})")->execute(array_values($row));
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    /** @param array<string,mixed> $fields */
+    public function updateQuarantine(int $id, array $fields): void
+    {
+        $set = implode(', ', array_map(static fn ($k) => "{$k} = ?", array_keys($fields)));
+        $this->pdo->prepare("UPDATE quarantine SET {$set} WHERE id = ?")->execute([...array_values($fields), $id]);
+    }
+
+    public function deleteQuarantine(int $id): void
+    {
+        $this->pdo->prepare('DELETE FROM quarantine WHERE id = ?')->execute([$id]);
+    }
+
+    /** @return array<string,mixed>|null */
+    public function quarantineEntry(int $id): ?array
+    {
+        $st = $this->pdo->prepare('SELECT q.*, s.path AS site_path, s.name AS site_name FROM quarantine q JOIN sites s ON s.id = q.site_id WHERE q.id = ?');
+        $st->execute([$id]);
+        $row = $st->fetch();
+        return $row === false ? null : $row;
+    }
+
+    /** @return array<int,array<string,mixed>> newest first */
+    public function quarantineEntries(): array
+    {
+        return $this->pdo->query('SELECT q.*, s.path AS site_path, s.name AS site_name FROM quarantine q JOIN sites s ON s.id = q.site_id ORDER BY q.id DESC')->fetchAll();
     }
 
     // ---- checksum cache ----

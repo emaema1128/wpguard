@@ -138,9 +138,20 @@ final class NotificationService
     {
         $site = self::code($site->name);
         if (count($findings) === 1) {
-            return sprintf('👉 確認したら: `wpguard ack %d`', $findings[0]->id);
+            $f = $findings[0];
+            if (self::canQuarantine($f)) {
+                return sprintf('👉 取り除く: `wpguard quarantine %d`  /  問題なければ: `wpguard ack %d`', $f->id, $f->id);
+            }
+            return sprintf('👉 確認したら: `wpguard ack %d`', $f->id);
         }
-        return sprintf('👉 一覧: `wpguard findings --site=%s`  /  確認したら: `wpguard ack --site=%s --all`', $site, $site);
+        $hint = array_filter($findings, [self::class, 'canQuarantine']) !== [] ? '  /  取り除く: `wpguard quarantine <ID>`' : '';
+        return sprintf('👉 一覧: `wpguard findings --site=%s`%s  /  確認したら: `wpguard ack --site=%s --all`', $site, $hint, $site);
+    }
+
+    /** Suggest quarantine only for serious findings where removing the file does not break the site. */
+    private static function canQuarantine(Finding $f): bool
+    {
+        return $f->severity === Severity::Critical && $f->kind !== Finding::DELETED && Quarantine::breaksSite($f->path) === null;
     }
 
     /** Escapes Slack control characters so file names cannot inject mentions or links. */

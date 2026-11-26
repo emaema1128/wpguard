@@ -56,6 +56,9 @@ return [
     // 1 サイトでこの件数を超えたら、1 通にまとめて通知します (プラグイン更新時など)
     'aggregate_threshold' => 10,
 
+    // 隔離したファイルを保管する日数 (過ぎたら全件スキャンのときに削除します)
+    'quarantine_days' => 30,
+
     'slack' => [
         // Slack の Incoming Webhook URL
         'webhook_url' => '',

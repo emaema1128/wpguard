@@ -22,6 +22,7 @@ final class Config
         'notify_min_severity' => 'warning',
         'dedupe_hours' => 6,
         'aggregate_threshold' => 10,
+        'quarantine_days' => 30,
         'slack' => [
             'webhook_url' => '',
             'webhooks' => [],
