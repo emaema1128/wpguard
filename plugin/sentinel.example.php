@@ -47,6 +47,16 @@ $wpguard_defaults = [
     // 二要素認証を使う人のアプリケーションパスワード (REST API 用の別のパスワード) を許可するか
     // 許可すると、それだけで二要素認証なしに REST API を使えます。外部サービスとの連携で必要なサイトだけ true に
     'WPGUARD_2FA_ALLOW_APP_PASSWORDS' => false,
+
+    // セキュリティヘッダー (クリックジャッキング対策など)
+    'WPGUARD_SECURITY_HEADERS' => true,
+    // ほかのサイトへの埋め込み: 'SAMEORIGIN' (自サイトだけ許可) / 'DENY' (すべて禁止) / '' (制限しない)
+    // 自分のサイトを、ほかのサイトに iframe で埋め込んで見せている場合は '' に
+    'WPGUARD_FRAME_OPTIONS' => 'SAMEORIGIN',
+    'WPGUARD_PERMISSIONS_POLICY' => 'camera=(), microphone=(), usb=()',
+    // HSTS (HTTPS を強制する) の有効期間 (秒)。0 で無効
+    // 有効にすると、SSL 証明書の更新に失敗したときにサイトが開けなくなります。HTTPS が安定しているサイトだけで
+    'WPGUARD_HSTS' => 0,
 ];
 
 foreach ($wpguard_defaults as $wpguard_name => $wpguard_value) {

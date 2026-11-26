@@ -493,6 +493,32 @@ check($appPw('admin') === 'no', '管理者はアプリケーションパスワ�
 check($appPw('carol') === 'yes', '管理者以外は、これまでどおり使える');
 slack();
 
+section('P-10: セキュリティヘッダー');
+$hdr = static function (array $r, string $name): ?string {
+    return preg_match('/^' . preg_quote($name, '/') . ':\s*(.+?)\r?$/mi', $r['headers'], $m) ? $m[1] : null;
+};
+foreach (['/' => 'トップページ', '/wp-login.php' => 'ログイン画面', '/?rest_route=/wp/v2/posts' => 'REST API'] as $path => $label) {
+    $r = http('GET', $path);
+    check($hdr($r, 'X-Content-Type-Options') === 'nosniff' && $hdr($r, 'X-Frame-Options') === 'SAMEORIGIN'
+        && $hdr($r, 'Referrer-Policy') === 'strict-origin-when-cross-origin'
+        && str_contains((string) $hdr($r, 'Content-Security-Policy'), "frame-ancestors 'self'")
+        && $hdr($r, 'Permissions-Policy') !== null, "{$label}にセキュリティヘッダーを付ける");
+}
+$r = http('GET', '/');
+check($hdr($r, 'X-Powered-By') === null, 'PHP のバージョン (X-Powered-By) を出さない');
+if ($image !== '') {
+    file_put_contents("{$site}/plain.php", '<?php echo "x";');
+    check($hdr(http('GET', '/plain.php'), 'X-Powered-By') !== null, '(対照: WordPress 以外の PHP では X-Powered-By が出ている)');
+    unlink("{$site}/plain.php");
+}
+check(!str_contains($r['body'], 'name="generator"'), 'WordPress のバージョン (generator) を出さない');
+check($hdr($r, 'Strict-Transport-Security') === null, 'HSTS は既定では付けない');
+check(substr_count(strtolower(http('GET', '/wp-login.php')['headers']), "\nx-frame-options:") === 1, 'WordPress がもともと送るヘッダーと重複させない (ログイン画面)');
+file_put_contents("{$mu}/aa-server-headers.php", "<?php\nheader('X-Frame-Options: DENY');\n");
+$r = http('GET', '/');
+check(substr_count(strtolower($r['headers']), "\nx-frame-options:") === 1 && $hdr($r, 'X-Frame-Options') === 'DENY', 'すでに送られているヘッダーは上書きも重複もしない');
+unlink("{$mu}/aa-server-headers.php");
+
 section('Slack が落ちていたら後で再送');
 touch("{$slackLog}.down");
 wp("wp_insert_user(['user_login' => 'eve', 'user_pass' => wp_generate_password(), 'user_email' => 'eve@example.com', 'role' => 'administrator']);");

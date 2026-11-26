@@ -38,6 +38,14 @@ final class Config
     public $twoFactorGraceDays = 7;
     /** @var bool */
     public $twoFactorAllowAppPasswords = false;
+    /** @var bool */
+    public $securityHeaders = true;
+    /** @var string SAMEORIGIN, DENY or '' (none) */
+    public $frameOptions = 'SAMEORIGIN';
+    /** @var string */
+    public $permissionsPolicy = 'camera=(), microphone=(), usb=()';
+    /** @var int HSTS max-age in seconds, 0 = off */
+    public $hsts = 0;
 
     public static function fromConstants(): self
     {
@@ -59,6 +67,11 @@ final class Config
         $c->twoFactorRoles = is_array($roles) ? array_map('strval', $roles) : array_filter(array_map('trim', explode(',', (string) $roles)));
         $c->twoFactorGraceDays = max(0, (int) self::constant('WPGUARD_2FA_GRACE_DAYS', 7));
         $c->twoFactorAllowAppPasswords = (bool) self::constant('WPGUARD_2FA_ALLOW_APP_PASSWORDS', false);
+        $c->securityHeaders = (bool) self::constant('WPGUARD_SECURITY_HEADERS', true);
+        $frame = strtoupper((string) self::constant('WPGUARD_FRAME_OPTIONS', 'SAMEORIGIN'));
+        $c->frameOptions = in_array($frame, ['SAMEORIGIN', 'DENY'], true) ? $frame : '';
+        $c->permissionsPolicy = trim((string) self::constant('WPGUARD_PERMISSIONS_POLICY', 'camera=(), microphone=(), usb=()'));
+        $c->hsts = max(0, (int) self::constant('WPGUARD_HSTS', 0));
         return $c;
     }
 
