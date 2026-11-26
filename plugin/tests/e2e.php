@@ -14,6 +14,7 @@
  * To run the site on Apache with another PHP version (Docker, official php images):
  *   WPGUARD_E2E_IMAGE=php:7.4-apache php plugin/tests/e2e.php
  * WordPress then runs on Apache + that PHP, and .htaccess rules are checked for real.
+ * WPGUARD_E2E_KEEP=1 leaves the Docker containers running afterwards, for further checks.
  */
 
 declare(strict_types=1);
@@ -95,6 +96,10 @@ function http(string $method, string $path, array $opts = []): array
     }
     if (isset($opts['body'])) {
         curl_setopt($ch, CURLOPT_POSTFIELDS, $opts['body']);
+    }
+    if (isset($opts['type'])) {
+        $headers[] = 'Content-Type: ' . $opts['type'];
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
     }
     $raw = (string) curl_exec($ch);
     $size = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
@@ -202,6 +207,7 @@ if ($image === '') {
 } else {
     $wpSrv = null;
     exec('docker rm -f ' . CONTAINER . ' ' . DB_CONTAINER . ' 2>/dev/null');
+    sh('rm -rf ' . escapeshellarg("{$work}/apache-logs") . ' && mkdir -m 777 ' . escapeshellarg("{$work}/apache-logs"));
     // Containers share this machine's network, so Apache can reach the fake Slack on 127.0.0.1.
     sh('docker run -d --name ' . DB_CONTAINER . ' --network host -e MARIADB_ROOT_PASSWORD=root -e MARIADB_DATABASE=wp mariadb:11');
     sh('chmod -R a+rwX ' . escapeshellarg($site));
@@ -217,10 +223,16 @@ if ($image === '') {
     CONF);
     sh('docker run -d --name ' . CONTAINER . ' --network host'
         . ' -v ' . escapeshellarg("{$work}:{$work}") . ' -v ' . escapeshellarg(__DIR__ . ':' . __DIR__)
+        // Apache's logs (and ModSecurity's, if the image has it) stay readable after the run.
+        . ' -v ' . escapeshellarg("{$work}/apache-logs:/var/log/apache2")
         . ' ' . escapeshellarg($image)
         . ' sh -c ' . escapeshellarg("docker-php-ext-install mysqli >/dev/null 2>&1; echo > /etc/apache2/ports.conf && cp {$work}/apache.conf /etc/apache2/sites-enabled/000-default.conf && exec apache2-foreground"));
 }
 register_shutdown_function(static function () use ($slackSrv, $wpSrv): void {
+    if (getenv('WPGUARD_E2E_KEEP')) {
+        echo "\n(WPGUARD_E2E_KEEP: サーバーを残しています。片付け: docker rm -f " . CONTAINER . ' ' . DB_CONTAINER . ")\n";
+        return;
+    }
     proc_terminate($slackSrv);
     if ($wpSrv !== null) {
         proc_terminate($wpSrv);
@@ -289,7 +301,7 @@ if ($image !== '') {
 }
 
 section('P-05: XML-RPC とユーザー名の列挙を防ぐ');
-$r = http('POST', '/xmlrpc.php', ['body' => '<?xml version="1.0"?><methodCall><methodName>system.listMethods</methodName></methodCall>']);
+$r = http('POST', '/xmlrpc.php', ['type' => 'text/xml', 'body' => '<?xml version="1.0"?><methodCall><methodName>system.listMethods</methodName></methodCall>']);
 check($r['status'] === 403, 'xmlrpc.php は 403');
 check(!str_contains($r['body'], 'methodResponse'), 'XML-RPC の処理は動かない');
 $r = http('GET', '/?rest_route=/wp/v2/users');
