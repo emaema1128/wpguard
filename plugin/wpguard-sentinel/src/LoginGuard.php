@@ -75,6 +75,7 @@ final class LoginGuard
 
         delete_transient($key);
         set_transient(self::key('lock', $ip), time() + self::$config->loginLockout, self::$config->loginLockout);
+        AuditLog::record('login.locked', $ip, ['failures' => $state['count'], 'users' => implode(', ', $state['users']), 'minutes' => (int) (self::$config->loginLockout / 60)]);
         self::noticeLock($ip, $state);
     }
 

@@ -70,7 +70,7 @@ final class ChangeMonitor
         if ($action === 'install') {
             $data = $type === 'plugin' ? ($upgrader->new_plugin_data ?? []) : ($upgrader->new_theme_data ?? []);
             $name = is_array($data) && !empty($data['Name']) ? (string) $data['Name'] : '';
-            if ($name === '' && isset($upgrader->result['destination_name'])) {
+            if ($name === '' && is_array($upgrader->result ?? null) && isset($upgrader->result['destination_name'])) {
                 $name = (string) $upgrader->result['destination_name'];
             }
             $names[] = $name !== '' ? $name : '(不明)';

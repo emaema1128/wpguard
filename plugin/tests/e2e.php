@@ -172,6 +172,7 @@ define('WP_ACCESSIBLE_HOSTS', '127.0.0.1');
 define('WPGUARD_SHARED_CONFIG', '{$work}/sentinel.php');
 define('WPGUARD_SITE_NAME', 'e2e.example');
 define('WPGUARD_SLACK_MENTION', '');
+define('WPGUARD_AUDIT_FILE', '{$work}/audit.log');
 
 if (!defined('ABSPATH')) {
     define('ABSPATH', __DIR__ . '/');
@@ -187,6 +188,9 @@ $shared = strtr((string) file_get_contents("{$pluginSrc}/sentinel.example.php"),
     "'WPGUARD_SLACK_MENTION' => '<!channel>'" => "'WPGUARD_SLACK_MENTION' => '<!here>'",
 ]);
 file_put_contents("{$work}/sentinel.php", $shared);
+@unlink("{$work}/audit.log");
+touch("{$work}/audit.log");
+chmod("{$work}/audit.log", 0666); // the web server in Docker runs as www-data
 
 // ---------------------------------------------------------------- servers
 file_put_contents($slackLog, '');
@@ -518,6 +522,50 @@ file_put_contents("{$mu}/aa-server-headers.php", "<?php\nheader('X-Frame-Options
 $r = http('GET', '/');
 check(substr_count(strtolower($r['headers']), "\nx-frame-options:") === 1 && $hdr($r, 'X-Frame-Options') === 'DENY', 'すでに送られているヘッダーは上書きも重複もしない');
 unlink("{$mu}/aa-server-headers.php");
+
+section('P-11: 操作ログ');
+wp("wp_set_current_user(1); update_option('users_can_register', 1);");
+wp("wp_set_current_user(1); wp_insert_post(['post_title' => 'お知らせ \"重要\"' . \"\\n\" . '2行目', 'post_status' => 'publish', 'post_type' => 'post']);");
+wp("wp_set_current_user(1); \$id = wp_insert_attachment(['post_title' => 'logo', 'post_mime_type' => 'image/png'], 'logo.png'); ");
+wp("wp_set_current_user(1); wp_update_user(['ID' => get_user_by('login', 'carol')->ID, 'user_pass' => 'carol-pass-2']);");
+wp("wp_set_current_user(1); require_once ABSPATH . 'wp-admin/includes/user.php'; wp_delete_user(get_user_by('login', 'carol')->ID);");
+$rows = json_decode(wp("global \$wpdb; echo wp_json_encode(\$wpdb->get_results('SELECT event, object, user_login, ip, details FROM ' . WPGuard\\Sentinel\\AuditLog::table() . ' ORDER BY id', ARRAY_A));"), true) ?: [];
+$has = static function (string $event, callable $match = null) use ($rows): bool {
+    foreach ($rows as $r) {
+        if ($r['event'] === $event && ($match === null || $match($r))) {
+            return true;
+        }
+    }
+    return false;
+};
+check($has('login.success', fn ($r) => $r['user_login'] === 'admin' && $r['ip'] === '198.51.100.7'), 'ログインを、ユーザー名と IP と一緒に記録する');
+check($has('login.failed', fn ($r) => $r['user_login'] === 'nobody' && $r['ip'] === '203.0.113.99'), 'ログインの失敗を、試されたユーザー名と一緒に記録する');
+check($has('login.failed', fn ($r) => str_contains((string) $r['details'], '確認コードの間違い')), '二要素認証のコードの間違いも記録する');
+check($has('login.locked', fn ($r) => $r['object'] === '203.0.113.10'), 'IP のロックを記録する');
+check($has('2fa.enrolled') && $has('2fa.recovery_used'), '二要素認証の設定と予備コードの使用を記録する');
+check($has('user.created', fn ($r) => $r['object'] === 'mallory' && str_contains((string) $r['details'], 'administrator')), 'ユーザーの作成を権限グループと一緒に記録する');
+check($has('user.role_changed', fn ($r) => $r['object'] === 'bob' && str_contains((string) $r['details'], '"to":"administrator"')), '権限グループの変更を、変更前と変更後と一緒に記録する');
+check($has('plugin.activated', fn ($r) => $r['object'] === 'hello.php') && $has('plugin.deactivated') && $has('theme.switched'), 'プラグインの有効化・無効化とテーマの変更を記録する');
+check($has('option.changed', fn ($r) => $r['object'] === 'だれでもユーザー登録ができる' && $r['user_login'] === 'admin'), '重要な設定の変更を、誰が変えたかと一緒に記録する');
+check($has('post.published') && $has('media.uploaded', fn ($r) => $r['object'] === 'logo.png'), '投稿の公開とファイルのアップロードを記録する');
+check($has('user.password_changed', fn ($r) => $r['object'] === 'carol') && $has('user.deleted', fn ($r) => $r['object'] === 'carol'), 'パスワードの変更とユーザーの削除を記録する');
+check(!$has('login.failed', fn ($r) => $r['ip'] === '203.0.113.10' && $r['user_login'] === 'admin' && str_contains((string) $r['details'], 'lock')), '(ロック中の試行は、ロックとしてまとめて記録)');
+
+$file = is_file("{$work}/audit.log") ? file("{$work}/audit.log", FILE_IGNORE_NEW_LINES) : [];
+$lock = array_values(array_filter($file, fn ($l) => str_contains($l, 'event=login.locked')));
+check(count($file) === count($rows) && isset($lock[0]) && str_contains($lock[0], 'site=127.0.0.1 event=login.locked user="" ip=') && str_contains($lock[0], 'object="203.0.113.10"'), 'syslog と同じ形式の行を、DB と同じ件数だけ書き出す');
+$post = array_values(array_filter($file, fn ($l) => str_contains($l, 'event=post.published')));
+check(isset($post[0]) && str_contains($post[0], '\\"重要\\"') && !str_contains($post[0], "\n"), '改行や引用符を含む値でも 1 行に収める (ログの偽装を防ぐ)');
+
+$html = wp("wp_set_current_user(1); \$_GET['group'] = 'login'; ob_start(); WPGuard\\Sentinel\\AuditLog::adminPage(); echo ob_get_clean();");
+check(str_contains($html, 'IP をロック') && str_contains($html, '203.0.113.10') && !str_contains($html, 'ユーザー作成'), '管理画面で、種類で絞り込んで表示できる');
+$html = wp("wp_set_current_user(1); \$_GET['who'] = 'mallory'; ob_start(); WPGuard\\Sentinel\\AuditLog::adminPage(); echo ob_get_clean();");
+check(str_contains($html, 'ユーザー作成') && str_contains($html, 'mallory') && !str_contains($html, 'IP をロック'), 'ユーザー名で絞り込める (操作した人と、操作された対象のどちらでも)');
+check(str_contains($html, '&quot;') || !str_contains($html, '<script'), '(表示はエスケープする)');
+check(wp("echo current_user_can('manage_options') ? 'yes' : 'no';") === 'no' && wp("wp_set_current_user(\$GLOBALS['wpdb']->get_var(\"SELECT ID FROM {\$GLOBALS['wpdb']->users} WHERE user_login = 'ghost'\") ?: 0); echo 'ok';") === 'ok', '(管理画面は manage_options を持つ人だけ)');
+wp("set_transient('wpguard_audit_purge', 0, 1); delete_transient('wpguard_audit_purge'); global \$wpdb; \$wpdb->query(\"UPDATE \" . WPGuard\\Sentinel\\AuditLog::table() . \" SET created = '2000-01-01 00:00:00' WHERE event = 'logout'\"); WPGuard\\Sentinel\\AuditLog::maybePurge(); echo 1;");
+check(wp("global \$wpdb; echo (int) \$wpdb->get_var(\"SELECT COUNT(*) FROM \" . WPGuard\\Sentinel\\AuditLog::table() . \" WHERE created < '2001-01-01'\");") === '0', '保存期間 (90 日) を過ぎた記録は消す');
+slack();
 
 section('Slack が落ちていたら後で再送');
 touch("{$slackLog}.down");

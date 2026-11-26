@@ -270,12 +270,14 @@ final class TwoFactor
         update_user_meta($user->ID, self::META_LAST_STEP, $step);
         delete_user_meta($user->ID, self::META_PENDING);
         Notifier::send(Notifier::INFO, '二要素認証が設定されました', ['👤 ユーザー: `' . Notifier::esc($user->user_login) . '`']);
+        AuditLog::record('2fa.enrolled', $user->user_login, [], $user);
         return true;
     }
 
     private static function noticeRecoveryUsed(\WP_User $user): void
     {
         $left = count((array) get_user_meta($user->ID, self::META_RECOVERY, true));
+        AuditLog::record('2fa.recovery_used', $user->user_login, ['left' => $left], $user);
         Notifier::send(Notifier::WARNING, '予備コードでログインしました', [
             sprintf('👤 ユーザー: `%s`  🌐 IP: `%s`  🔑 残りの予備コード: %d 個', Notifier::esc($user->user_login), Notifier::esc(ClientIp::get()), $left),
             'スマホをなくした場合は、認証アプリを設定し直してください。心当たりがなければ、パスワードを変更してください。',
@@ -339,7 +341,7 @@ final class TwoFactor
             echo '<input type="hidden" name="wpguard_action" value="enroll">';
             echo '<p><label for="wpguard_code"><strong>3. アプリに表示された 6 桁のコード</strong></label><br>';
             echo '<input type="text" id="wpguard_code" name="wpguard_code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]*" maxlength="7" class="regular-text" style="font-size:1.4em;letter-spacing:.2em;width:9em" required></p>';
-            submit_button('設定する');
+            echo '<p class="submit"><button type="submit" class="button button-primary">設定する</button></p>';
             echo '</form>';
         }
         echo '</div>';

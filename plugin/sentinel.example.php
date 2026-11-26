@@ -57,6 +57,12 @@ $wpguard_defaults = [
     // HSTS (HTTPS を強制する) の有効期間 (秒)。0 で無効
     // 有効にすると、SSL 証明書の更新に失敗したときにサイトが開けなくなります。HTTPS が安定しているサイトだけで
     'WPGUARD_HSTS' => 0,
+
+    // 操作ログ (ツール → 操作ログ)
+    'WPGUARD_AUDIT_LOG' => true,
+    // サーバーのシステムログ (syslog) にも書く。Web サーバーの権限では消せないので、侵入されても記録が残ります
+    'WPGUARD_AUDIT_SYSLOG' => true,
+    'WPGUARD_AUDIT_DAYS' => 90,
 ];
 
 foreach ($wpguard_defaults as $wpguard_name => $wpguard_value) {

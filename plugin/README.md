@@ -19,6 +19,7 @@ mu-plugin (必ず使うプラグイン) として入れるので、管理画面�
 | P-06 | uploads での PHP 実行禁止 | `uploads/.htaccess` を作る。消されたら作り直して 🟡警告 |
 | P-07 | 二要素認証 | 管理者はログインのたびに、認証アプリの 6 桁のコードが必要。導入から 7 日間は猶予 (管理画面にお知らせ)。予備コード 10 個。コードの総当たりは P-01 のロックで防ぐ。二要素認証を使う人はアプリケーションパスワードを使えない (抜け道になるため) |
 | P-10 | セキュリティヘッダー | すべてのページ (管理画面・ログイン画面・REST API を含む) に、どのサイトでも壊れにくいヘッダーだけを付ける: `X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`、`Permissions-Policy`、CSP の一部 (`base-uri`・`object-src`・`frame-ancestors`)。PHP と WordPress のバージョン表示を消す。サーバー側ですでに送っているヘッダーは重複させない。HSTS は既定で無効 |
+| P-11 | 操作ログ | ログイン (成功・失敗・ロック)、二要素認証、ユーザーの作成・権限変更・削除・パスワード変更、プラグイン・テーマ・本体の変更、重要な設定の変更、投稿の公開・削除、アップロードを記録。「ツール → 操作ログ」で見られる (管理者のみ)。**サーバーの syslog にも書くので、乗っ取られても記録が残る**。90 日で削除 |
 | P-08 | WP-Cron の監視 | 新しい定期実行の処理を 5 分おきに点検。処理のコードの場所で判定する: プラグイン・テーマ・本体なら記録だけ、mu-plugins や処理が見つからないものは 🟡警告、uploads・`eval` で作られたコード・それ以外の場所は 🔴緊急。怪しい引数 (URL、`base64_decode` など) やランダムな名前も 🔴緊急 |
 
 Slack への送信は、ページを表示し終わってから行います。送れなかった通知は保存して、5 分おきに再送します。
@@ -73,6 +74,20 @@ sudo wpguard 2fa-reset --site=example.com --user=tanaka
 
 QR コードは表示しません (設定キーの入力か、スマホでリンクをタップして登録します)。
 
+## 操作ログの見かた
+
+管理画面の「ツール → 操作ログ」で、種類 (ログイン、ユーザー、プラグインなど) やユーザー名・IP で絞り込めます。
+
+侵入されたときは、サイトの操作ログが消されている可能性があります。サーバーのシステムログ (root しか書き換えられない) を見てください。
+
+```bash
+sudo journalctl -t wpguard --since "2026-11-01"           # systemd の場合
+sudo grep 'wpguard:' /var/log/syslog | grep 'site=example.com'
+sudo grep 'wpguard:' /var/log/syslog | grep 'event=user.created'
+```
+
+1 件 1 行で、`site=サイト event=操作 user="ユーザー" ip=IP object="対象" details={...}` の形式です。ログイン失敗とロックは warning、それ以外は notice で記録します。
+
 ## サイトごとの設定
 
 サイトの `wp-config.php` で定義した定数は、共通設定より優先されます。
@@ -97,6 +112,9 @@ QR コードは表示しません (設定キーの入力か、スマホでリン
 | `WPGUARD_SECURITY_HEADERS` | `true` | セキュリティヘッダーを付ける |
 | `WPGUARD_FRAME_OPTIONS` | `'SAMEORIGIN'` | ほかのサイトへの埋め込み。`'DENY'` ですべて禁止、`''` で制限しない (**自分のサイトをほかのサイトに iframe で埋め込んでいる場合は `''` に**) |
 | `WPGUARD_PERMISSIONS_POLICY` | `'camera=(), microphone=(), usb=()'` | ブラウザの機能の制限。カメラなどを使うサイトは外す |
+| `WPGUARD_AUDIT_LOG` | `true` | 操作ログを記録する |
+| `WPGUARD_AUDIT_SYSLOG` | `true` | 操作ログをサーバーの syslog にも書く |
+| `WPGUARD_AUDIT_DAYS` | `90` | サイトの DB に操作ログを残す日数 (syslog の保存期間はサーバーの設定に従う) |
 | `WPGUARD_HSTS` | `0` | HSTS の有効期間 (秒)。例: `31536000` (1 年)。**SSL 証明書の更新に失敗するとサイトが開けなくなる**ので、HTTPS が安定しているサイトだけで |
 | `WPGUARD_SHARED_CONFIG` | `'/etc/wpguard/sentinel.php'` | 共通設定のパス |
 

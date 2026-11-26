@@ -46,6 +46,14 @@ final class Config
     public $permissionsPolicy = 'camera=(), microphone=(), usb=()';
     /** @var int HSTS max-age in seconds, 0 = off */
     public $hsts = 0;
+    /** @var bool */
+    public $auditLog = true;
+    /** @var bool */
+    public $auditSyslog = true;
+    /** @var string extra copy of the audit log, one line per entry ('' = none) */
+    public $auditFile = '';
+    /** @var int */
+    public $auditDays = 90;
 
     public static function fromConstants(): self
     {
@@ -72,6 +80,10 @@ final class Config
         $c->frameOptions = in_array($frame, ['SAMEORIGIN', 'DENY'], true) ? $frame : '';
         $c->permissionsPolicy = trim((string) self::constant('WPGUARD_PERMISSIONS_POLICY', 'camera=(), microphone=(), usb=()'));
         $c->hsts = max(0, (int) self::constant('WPGUARD_HSTS', 0));
+        $c->auditLog = (bool) self::constant('WPGUARD_AUDIT_LOG', true);
+        $c->auditSyslog = (bool) self::constant('WPGUARD_AUDIT_SYSLOG', true);
+        $c->auditFile = (string) self::constant('WPGUARD_AUDIT_FILE', '');
+        $c->auditDays = max(1, (int) self::constant('WPGUARD_AUDIT_DAYS', 90));
         return $c;
     }
 
