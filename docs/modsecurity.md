@@ -95,6 +95,17 @@ sudo grep 'ModSecurity' /var/log/apache2/error.log | tail -3
 
 普段どおりサイトを使ってもらい (投稿、固定ページの編集、フォームの送信、ネットショップの注文など)、**「遮断モードだったら遮断されていた」アクセスの中に、正規の操作がないか**を探します。
 
+WPGuard の監視エージェントを入れていれば、毎朝の日次サマリーに件数が載ります (サイトごとの件数、多い接続元、攻撃の種類、多い URL)。自分たちの事務所の IP や、管理画面の URL が上位に出ていたら、下の手順で詳しく見てください。
+
+```
+🛡 WAF (24 時間、記録だけのモード): 遮断されるはずだったもの 23 件
+  正規の操作が含まれていないか確認してください
+  • サイト: shop.example 15 件 / blog.example 8 件
+  • 多い接続元: 203.0.113.5 12 件 / …
+  • 主な種類: SQL インジェクション 10 件 / XSS 6 件 / …
+  • 多い URL: / 14 件 / /wp-login.php 5 件 / …
+```
+
 ### ログの見かた
 
 **(1) 遮断されていたはずのアクセスを、サイトと URL ごとに数える**
@@ -158,6 +169,8 @@ sudo sed -i 's/^SecRuleEngine .*/SecRuleEngine On/' /etc/modsecurity/modsecurity
 sudo apache2ctl configtest && sudo systemctl reload apache2
 curl -s -o /dev/null -w '%{http_code}\n' "https://example.com/?id=1%27%20UNION%20SELECT%20user_pass%20FROM%20wp_users--"   # → 403
 ```
+
+遮断モードにしてからは、日次サマリーに「🛡 WAF (24 時間): 遮断 N 件」が載ります。1 件の攻撃が複数の種類 (例: ファイルの読み出しとコマンドの実行) に数えられることがあります。
 
 遮断モードにしてからしばらくは、サイトの利用者から「403 Forbidden が出る」という連絡がないか気をつけてください。連絡があったら、その時刻と URL でエラーログを探し (上の (2))、誤検知なら外します。
 

@@ -66,6 +66,11 @@ return [
     // mu-plugins の WPGuard のファイルがこれと一致すれば通知せず、違えば改ざんとして通知します
     'sentinel_manifest' => '/etc/wpguard/sentinel.sha256',
 
+    // 日次サマリーに、ModSecurity (WAF) が遮断した件数を載せる (docs/modsecurity.md)
+    // ModSecurity が有効なときだけ表示します
+    'waf_digest' => true,
+    'waf_logs' => ['/var/log/apache2/error.log', '/var/log/apache2/error.log.1'],
+
     // 各サイトの DB を検査する (全件スキャンのとき。読み取りだけで、書き換えはしません)
     'db_scan' => true,
     'db_timeout' => 5,

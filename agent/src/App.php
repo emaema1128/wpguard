@@ -257,7 +257,8 @@ final class App
     {
         $now ??= time();
         $this->syncSites($now);
-        return $this->notifications->sendRaw((new Digest($this->db, $this->config))->build($now));
+        $waf = new WafLog((array) $this->config->get('waf_logs'), WafLog::systemTimezone());
+        return $this->notifications->sendRaw((new Digest($this->db, $this->config, $waf))->build($now));
     }
 
     public function quarantine(): Quarantine

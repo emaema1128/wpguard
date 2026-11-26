@@ -16,7 +16,7 @@ use WPGuard\Notifier\Message;
  */
 final class Digest
 {
-    public function __construct(private Database $db, private Config $config)
+    public function __construct(private Database $db, private Config $config, private ?WafLog $waf = null)
     {
     }
 
@@ -95,12 +95,55 @@ final class Digest
             '過去 24 時間: 検知 %s、記録のみ 🔵%d 件、隔離 %d 件 (保管中 %d 件)',
             self::counts($totalRecent, true), $totalRecent['info'], $quarantine['recent'], $quarantine['held'],
         );
+        array_push($lines, ...$this->wafLines($since, $now));
         if ($totalOpen['critical'] + $totalOpen['warning'] > 0) {
             $lines[] = '👉 一覧: `wpguard findings`';
         }
         $lines[] = sprintf('🕐 %s', date('Y-m-d H:i', $now));
 
         return new Message($severity, implode("\n", $lines));
+    }
+
+    /** @return string[] */
+    private function wafLines(int $since, int $now): array
+    {
+        if ($this->waf === null || !$this->config->get('waf_digest')) {
+            return [];
+        }
+        $s = $this->waf->summarize($since, $now);
+        $installed = is_file((string) $this->config->get('waf_module_file'));
+        if ($s === null || (!$installed && $s['blocked'] === 0)) {
+            return [];
+        }
+        $top = static function (array $list, int $n, string $unit = ' 件'): string {
+            $parts = [];
+            foreach (array_slice($list, 0, $n, true) as $k => $v) {
+                $parts[] = self::esc((string) $k) . " {$v}{$unit}";
+            }
+            $rest = count($list) - $n;
+            return implode(' / ', $parts) . ($rest > 0 ? " …ほか {$rest}" : '');
+        };
+        $lines = [''];
+        if ($s['mode'] === 'detect') {
+            $lines[] = sprintf('🛡 *WAF (24 時間、記録だけのモード)*: 遮断されるはずだったもの %d 件', $s['blocked']);
+            if ($s['blocked'] > 0) {
+                $lines[] = '  正規の操作が含まれていないか確認してください (docs/modsecurity.md の「ログの見かた」)';
+            }
+        } else {
+            $lines[] = sprintf('🛡 *WAF (24 時間)*: 遮断 %d 件', $s['blocked']);
+        }
+        if ($s['blocked'] === 0) {
+            return $lines;
+        }
+        $lines[] = '  • サイト: ' . $top($s['hosts'], 5);
+        $lines[] = '  • 多い接続元: ' . $top($s['clients'], 3);
+        if ($s['reasons'] !== []) {
+            $lines[] = '  • 主な種類: ' . $top($s['reasons'], 4);
+        }
+        if ($s['mode'] === 'detect') {
+            $lines[] = '  • 多い URL: ' . $top(array_map(static fn ($v) => $v, $s['uris']), 3);
+        }
+        return $lines;
     }
 
     /** @param array<string,int> $c */

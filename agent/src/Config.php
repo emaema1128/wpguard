@@ -25,6 +25,9 @@ final class Config
         'quarantine_days' => 30,
         'stale_hours' => 3,
         'sentinel_manifest' => '/etc/wpguard/sentinel.sha256',
+        'waf_digest' => true,
+        'waf_logs' => ['/var/log/apache2/error.log', '/var/log/apache2/error.log.1'],
+        'waf_module_file' => '/etc/apache2/mods-enabled/security2.load',
         'db_scan' => true,
         'db_timeout' => 5,
         'db_script_allow' => [
