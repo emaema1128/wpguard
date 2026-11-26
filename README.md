@@ -19,8 +19,11 @@ VPS 上の複数の WordPress サイトを監視し、マルウェアの設置�
 | サイトの消失検知 | 監視していたサイトが見つからなくなったら通知する |
 | 隔離 | 検知したファイルをサイトから取り除き、root だけが読める場所に保管する。元に戻せる。30 日で自動削除 |
 | 日次サマリー | 毎朝 1 通。問題のあるサイト (未対応の検知、止まっているスキャン、消えたサイト) だけを並べる |
+| DB の検査 | 毎日の全件スキャンで、各サイトの DB を読み取り専用で検査する。投稿や設定 (ウィジェットなど) に埋め込まれた難読化スクリプト・IP アドレスからのスクリプト・見えない iframe・新しい外部ドメインのスクリプト、サイト URL の書き換え、管理者の増減 |
 
-**まだできないこと**: DB 内に注入されたスクリプトの検出、二要素認証。
+**DB の検査について**: 接続情報は各サイトの `wp-config.php` から読み取ります (実行はしません)。初回の検査では、すでに埋め込まれている外部スクリプト (アクセス解析や広告など) は記録だけして通知しません。それ以降に新しいドメインのスクリプトが埋め込まれたら通知します。よく使われるサービス (Google アナリティクスなど) は `db_script_allow` で許可済みです。
+
+**まだできないこと**: 二要素認証 (各サイトのプラグインに追加予定)。
 
 **照合できないもの**: テーマと、公式リポジトリにない有料プラグインは比べる相手がないため、場所による判定とパターン検出だけになります (更新すると 🟡警告で通知されます)。
 
@@ -28,11 +31,11 @@ VPS 上の複数の WordPress サイトを監視し、マルウェアの設置�
 
 ## 動作環境
 
-- PHP 8.1 以上 (CLI)、拡張モジュール `pdo_sqlite`・`curl`・`mbstring`
+- PHP 8.1 以上 (CLI)、拡張モジュール `pdo_sqlite`・`curl`・`mbstring`・`tokenizer`・`pdo_mysql` (DB の検査用)
 - root で実行すること (全サイトのファイルを読むため。また、状態データを www-data から守るため)
 
 ```bash
-sudo apt-get install -y php-cli php-sqlite3 php-curl php-mbstring
+sudo apt-get install -y php-cli php-sqlite3 php-curl php-mbstring php-mysql
 ```
 
 ## インストール
@@ -124,6 +127,7 @@ wpguard findings --site=example.com
 wpguard ack 12 13                    # 確認済みにする
 wpguard ack --site=example.com --all
 wpguard baseline --site=example.com  # 現在の状態を正常として記録し直す (有料プラグインやテーマの更新後など)
+wpguard db-scan --site=example.com   # DB だけを今すぐ検査する
 wpguard help
 ```
 
@@ -157,5 +161,6 @@ wp plugin install <プラグイン名> --force
 
 ```bash
 php agent/tests/run.php     # 監視エージェント
+php agent/tests/dbscan.php  # DB の検査 (Docker で MariaDB を起動して試す)
 php plugin/tests/e2e.php    # プラグイン (本物の WordPress で試す)
 ```

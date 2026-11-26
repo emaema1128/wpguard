@@ -62,6 +62,14 @@ return [
     // 日次サマリーで「スキャンが止まっている」と知らせるまでの時間
     'stale_hours' => 3,
 
+    // 各サイトの DB を検査する (全件スキャンのとき。読み取りだけで、書き換えはしません)
+    'db_scan' => true,
+    'db_timeout' => 5,
+
+    // 投稿や設定に埋め込まれていても通知しない、外部スクリプトの読み込み元
+    // (サブドメインも含む。サイト自身のドメインは自動で許可)
+    // 'db_script_allow' => ['googletagmanager.com', 'google-analytics.com', ...],
+
     'slack' => [
         // Slack の Incoming Webhook URL
         'webhook_url' => '',

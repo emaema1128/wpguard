@@ -18,6 +18,7 @@ final class App
     public readonly NotificationService $notifications;
     private Scanner $scanner;
     private ?Quarantine $quarantine = null;
+    private ?DbScanner $dbScanner = null;
     /** @var resource|null */
     private $lock = null;
 
@@ -134,6 +135,10 @@ final class App
                 $result->files, $result->hashed, $c['critical'], $c['warning'], $c['info'], $result->seconds,
             ));
 
+            if ($full || $baselineOnly) {
+                $this->scanDatabase($site, $now);
+            }
+
             if ($baselineOnly) {
                 $isNew = $row['last_scan'] === null;
                 $body = sprintf("📁 `%s`\n📄 %d ファイルをベースラインとして記録しました", $site->path, $result->files);
@@ -160,6 +165,59 @@ final class App
             }
         }
         return $results;
+    }
+
+    /**
+     * Inspects one site's database. Failures (e.g. unreadable wp-config.php) are reported
+     * once, and again only when the error changes, so a broken site does not alert every day.
+     */
+    private function scanDatabase(Site $site, int $now): ?ScanResult
+    {
+        if (!$this->config->get('db_scan')) {
+            return null;
+        }
+        if (!extension_loaded('pdo_mysql')) {
+            $this->logger->warning('PHP の pdo_mysql 拡張モジュールがないため、DB の検査を行いません (apt-get install php-mysql)');
+            return null;
+        }
+        $this->dbScanner ??= new DbScanner($this->db, (array) $this->config->get('db_script_allow'), (int) $this->config->get('db_timeout'));
+        try {
+            $r = $this->dbScanner->scan($site, $now);
+            $this->db->setSiteState((int) $site->id, 'db_error', null);
+            $c = $r->counts();
+            $this->logger->info(sprintf('%s: DB 検査 %d 件 緊急 %d / 警告 %d / 情報 %d, %.1f 秒', $site->name, $r->files, $c['critical'], $c['warning'], $c['info'], $r->seconds));
+            return $r;
+        } catch (\Throwable $e) {
+            $msg = $e instanceof \PDOException ? 'DB に接続できません: ' . $e->getMessage() : $e->getMessage();
+            $this->logger->warning("{$site->name}: DB を検査できません: {$msg}");
+            if ($this->db->siteState((int) $site->id, 'db_error') !== $msg) {
+                $this->db->setSiteState((int) $site->id, 'db_error', $msg);
+                $this->notifications->notifyEvent(Severity::Warning, $site->name, 'DB を検査できませんでした', '`' . str_replace('`', "'", $msg) . '`');
+            }
+            return null;
+        }
+    }
+
+    /** @return array<string,ScanResult> */
+    public function dbScan(?string $only = null, ?int $now = null): array
+    {
+        $now ??= time();
+        $sites = $this->syncSites($now);
+        if ($only !== null && !isset($sites[$only])) {
+            throw new \RuntimeException("サイトが見つかりません: {$only}");
+        }
+        $out = [];
+        foreach ($sites as $name => $site) {
+            if ($only !== null && $name !== $only) {
+                continue;
+            }
+            $r = $this->scanDatabase($site, $now);
+            if ($r !== null) {
+                $out[$name] = $r;
+                $this->notifications->notifyPending($site, $now);
+            }
+        }
+        return $out;
     }
 
     /** Sends the daily digest. Returns false when Slack could not be reached. */

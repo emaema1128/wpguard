@@ -98,7 +98,7 @@ mkdir("{$www}/not-wordpress/html", 0755, true);
 
 $config = Config::fromArray([
     'roots' => [$www],
-    'data_dir' => "{$tmp}/data",
+    'data_dir' => "{$tmp}/data", 'db_scan' => false,
     'log_file' => "{$tmp}/wpguard.log",
     'aggregate_threshold' => 10,
 ]);
@@ -254,6 +254,7 @@ check(count($m) === 1 && str_contains($m[0]->text, '再び見つかりました'
 require __DIR__ . '/step2.php';
 require __DIR__ . '/quarantine.php';
 require __DIR__ . '/digest.php';
+require __DIR__ . '/wpconfig.php';
 
 // ---------------------------------------------------------------- cleanup
 exec('rm -rf ' . escapeshellarg($tmp));

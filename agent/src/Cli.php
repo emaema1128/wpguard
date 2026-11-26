@@ -25,6 +25,7 @@ final class Cli
                                          指定したファイルを隔離する
           quarantine --list              隔離したファイルの一覧
           restore <隔離ID>                隔離したファイルを元に戻す
+          db-scan [--site=NAME]          DB に埋め込まれたスクリプトなどを検査する (全件スキャンでも実行)
           digest                         全サイトの日次サマリーを Slack に送る
           test-slack                     Slack にテスト通知を送る
           help                           このヘルプ
@@ -64,6 +65,7 @@ final class Cli
                 'restore' => $this->restore($app, $args),
                 'test-slack' => $this->testSlack($app),
                 'digest' => $app->digest() ? 0 : 1,
+                'db-scan' => $this->dbScan($app, $opts),
                 default => $this->unknown($command),
             };
         } catch (\Throwable $e) {
@@ -209,6 +211,21 @@ final class Cli
         }
         $q = $app->restore((int) $args[0]);
         fwrite(STDOUT, "元に戻しました: {$q['site_name']} {$q['path']}\n");
+        return 0;
+    }
+
+    private function dbScan(App $app, array $opts): int
+    {
+        if (!$app->lock()) {
+            fwrite(STDERR, "別の wpguard が実行中のため終了します\n");
+            return 3;
+        }
+        $table = [['サイト', '検査した行', '緊急', '警告', '情報', '秒']];
+        foreach ($app->dbScan(self::siteOpt($opts)) as $name => $r) {
+            $c = $r->counts();
+            $table[] = [$name, (string) $r->files, (string) $c['critical'], (string) $c['warning'], (string) $c['info'], sprintf('%.1f', $r->seconds)];
+        }
+        self::printTable($table);
         return 0;
     }
 

@@ -17,7 +17,7 @@ makeWp("{$www4}/beta");
 makeWp("{$www4}/gamma");
 $n4 = new CaptureNotifier();
 $app4 = new App(
-    Config::fromArray(['roots' => [$www4], 'data_dir' => "{$tmp}/data4", 'log_file' => "{$tmp}/wpguard4.log", 'stale_hours' => 3]),
+    Config::fromArray(['roots' => [$www4], 'data_dir' => "{$tmp}/data4", 'db_scan' => false, 'log_file' => "{$tmp}/wpguard4.log", 'stale_hours' => 3]),
     $n4, new Logger("{$tmp}/wpguard4.log"), false, new NullChecksums(),
 );
 $t4 = time();

@@ -16,7 +16,7 @@ $Q = "{$www3}/site-q";
 makeWp($Q);
 $n3 = new CaptureNotifier();
 $app3 = new App(
-    Config::fromArray(['roots' => [$www3], 'data_dir' => "{$tmp}/data3", 'log_file' => "{$tmp}/wpguard3.log", 'quarantine_days' => 30]),
+    Config::fromArray(['roots' => [$www3], 'data_dir' => "{$tmp}/data3", 'db_scan' => false, 'log_file' => "{$tmp}/wpguard3.log", 'quarantine_days' => 30]),
     $n3, new Logger("{$tmp}/wpguard3.log"), false, new NullChecksums(),
 );
 $t3 = time();

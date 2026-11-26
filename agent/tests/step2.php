@@ -119,7 +119,7 @@ file_put_contents("{$C}/wp-includes/load.php", "<?php // core\n/* injected */ if
 
 $n2 = new CaptureNotifier();
 $app2 = new App(
-    Config::fromArray(['roots' => [$www2], 'data_dir' => "{$tmp}/data2", 'log_file' => "{$tmp}/wpguard2.log"]),
+    Config::fromArray(['roots' => [$www2], 'data_dir' => "{$tmp}/data2", 'db_scan' => false, 'log_file' => "{$tmp}/wpguard2.log"]),
     $n2, new Logger("{$tmp}/wpguard2.log"), false, $fake,
 );
 $t2 = time();

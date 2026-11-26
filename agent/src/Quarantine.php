@@ -26,6 +26,9 @@ final class Quarantine
      */
     public function isolate(array $site, string $rel, ?int $findingId, bool $force, int $now): array
     {
+        if (str_starts_with($rel, 'db:')) {
+            throw new \RuntimeException("DB の中の検知 ({$rel}) は隔離できません。管理画面で該当の投稿・設定・ユーザーを確認して直してください。");
+        }
         $rel = self::normalize($rel);
         $root = (string) $site['path'];
         $abs = $root . '/' . $rel;

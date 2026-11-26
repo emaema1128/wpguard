@@ -105,6 +105,17 @@ final class Database
                 PRAGMA user_version = 3;
                 SQL);
         }
+        if ($version < 4) {
+            $this->pdo->exec(<<<'SQL'
+                CREATE TABLE site_state (
+                    site_id INTEGER NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+                    key TEXT NOT NULL,
+                    value TEXT,
+                    PRIMARY KEY (site_id, key)
+                ) WITHOUT ROWID;
+                PRAGMA user_version = 4;
+                SQL);
+        }
     }
 
     public function begin(): void
@@ -145,6 +156,21 @@ final class Database
         $set = implode(', ', array_map(static fn ($k) => "{$k} = ?", array_keys($fields)));
         $st = $this->pdo->prepare("UPDATE sites SET {$set} WHERE id = ?");
         $st->execute([...array_values($fields), $id]);
+    }
+
+    public function siteState(int $siteId, string $key): ?string
+    {
+        $st = $this->pdo->prepare('SELECT value FROM site_state WHERE site_id = ? AND key = ?');
+        $st->execute([$siteId, $key]);
+        $v = $st->fetchColumn();
+        return $v === false || $v === null ? null : (string) $v;
+    }
+
+    public function setSiteState(int $siteId, string $key, ?string $value): void
+    {
+        $st = $this->pdo->prepare('INSERT INTO site_state (site_id, key, value) VALUES (?, ?, ?)
+            ON CONFLICT (site_id, key) DO UPDATE SET value = excluded.value');
+        $st->execute([$siteId, $key, $value]);
     }
 
     // ---- files ----

@@ -24,6 +24,13 @@ final class Config
         'aggregate_threshold' => 10,
         'quarantine_days' => 30,
         'stale_hours' => 3,
+        'db_scan' => true,
+        'db_timeout' => 5,
+        'db_script_allow' => [
+            'googletagmanager.com', 'google-analytics.com', 'google.com', 'gstatic.com', 'googlesyndication.com',
+            'doubleclick.net', 'googleapis.com', 'youtube.com', 'vimeo.com', 'twitter.com', 'x.com', 'facebook.net',
+            'instagram.com', 'wp.com', 'wordpress.com', 'gravatar.com', 'hubspot.com', 'hs-scripts.com',
+        ],
         'slack' => [
             'webhook_url' => '',
             'webhooks' => [],
