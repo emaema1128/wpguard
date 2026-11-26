@@ -50,13 +50,19 @@ final class Notifier
         foreach ($lines as $line) {
             $text .= "\n" . $line;
         }
+        $text .= "\n🕐 " . self::date('Y-m-d H:i');
+        self::$queue[] = ['severity' => $severity, 'text' => $text];
+    }
+
+    /** Formats a time in the notification time zone (WPGUARD_TIMEZONE), not the site's setting. */
+    public static function date(string $format, ?int $timestamp = null): string
+    {
         try {
-            $tz = new \DateTimeZone(self::$config->timezone);
+            $tz = new \DateTimeZone(self::$config !== null ? self::$config->timezone : 'Asia/Tokyo');
         } catch (\Exception $e) {
             $tz = wp_timezone();
         }
-        $text .= "\n🕐 " . wp_date('Y-m-d H:i', null, $tz);
-        self::$queue[] = ['severity' => $severity, 'text' => $text];
+        return (string) wp_date($format, $timestamp, $tz);
     }
 
     /** Standard "who did it" line. */

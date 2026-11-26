@@ -17,6 +17,7 @@ mu-plugin (必ず使うプラグイン) として入れるので、管理画面�
 | P-04 | ファイル編集の禁止 | 管理画面のプラグイン/テーマ編集機能を無効にする |
 | P-05 | XML-RPC・ユーザー列挙 | `xmlrpc.php` を 403 にする。REST API のユーザー一覧、`?author=1`、ユーザーのサイトマップ、oEmbed の投稿者名を隠す |
 | P-06 | uploads での PHP 実行禁止 | `uploads/.htaccess` を作る。消されたら作り直して 🟡警告 |
+| P-08 | WP-Cron の監視 | 新しい定期実行の処理を 5 分おきに点検。処理のコードの場所で判定する: プラグイン・テーマ・本体なら記録だけ、mu-plugins や処理が見つからないものは 🟡警告、uploads・`eval` で作られたコード・それ以外の場所は 🔴緊急。怪しい引数 (URL、`base64_decode` など) やランダムな名前も 🔴緊急 |
 
 Slack への送信は、ページを表示し終わってから行います。送れなかった通知は保存して、5 分おきに再送します。
 
@@ -91,5 +92,7 @@ WPGUARD_E2E_IMAGE=php:8.3-apache php tests/e2e.php
 ```
 
 Docker で動かすと、uploads の PHP が Apache で実際に実行されないことも確かめます。
+
+P-08 は、人気のプラグイン 10 個 (WooCommerce、Jetpack、Yoast SEO、Elementor、Wordfence、UpdraftPlus など) を有効化して、誤報が出ないことを確認しています。
 
 確認済み: PHP 8.4 (内蔵サーバー) / Apache 2.4.54 + PHP 7.4.33 + MariaDB 11.8 / Apache 2.4.71 + PHP 8.3.37 + MariaDB 11.8

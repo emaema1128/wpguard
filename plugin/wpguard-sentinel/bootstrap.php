@@ -13,6 +13,7 @@ require_once __DIR__ . '/src/LoginGuard.php';
 require_once __DIR__ . '/src/UserMonitor.php';
 require_once __DIR__ . '/src/ChangeMonitor.php';
 require_once __DIR__ . '/src/Hardening.php';
+require_once __DIR__ . '/src/CronMonitor.php';
 
 // Server-wide settings shared by every site (root-owned, readable by the web server).
 // Constants already defined in wp-config.php take precedence.
@@ -30,5 +31,6 @@ if (!(defined('WP_INSTALLING') && WP_INSTALLING)) {
     WPGuard\Sentinel\LoginGuard::register($wpguard_config);
     WPGuard\Sentinel\UserMonitor::register();
     WPGuard\Sentinel\ChangeMonitor::register();
+    WPGuard\Sentinel\CronMonitor::register();
     unset($wpguard_config);
 }

@@ -362,6 +362,55 @@ wp("wp_set_current_user(1); switch_theme('twentytwentyfour');");
 $m = slack();
 check(count($m) === 1 && str_contains($m[0], 'テーマが変更されました'), 'テーマの変更を🟡警告で通知');
 
+section('P-08: WP-Cron の監視');
+$mu = "{$site}/wp-content/mu-plugins";
+/** Runs the 5-minute cron check now and returns what reached Slack. */
+$cronCheck = static function (): array {
+    wp("delete_transient('wpguard_cron_check');");
+    http('GET', '/');
+    return slack();
+};
+check($cronCheck() === [], 'WordPress 本体の定期実行は通知しない (初回に記録済み)');
+
+@mkdir("{$site}/wp-content/plugins/cronplug");
+file_put_contents("{$site}/wp-content/plugins/cronplug/cronplug.php", <<<'P'
+<?php
+/* Plugin Name: Cron Plug */
+add_action('cronplug_daily', function () {});
+register_activation_hook(__FILE__, function () { wp_schedule_event(time() + 3600, 'daily', 'cronplug_daily'); });
+P);
+wp("wp_set_current_user(1); require_once ABSPATH . 'wp-admin/includes/plugin.php'; activate_plugin('cronplug/cronplug.php');");
+slack(); // the activation itself is reported by P-03
+check($cronCheck() === [], 'プラグインが登録した定期実行は、記録だけして通知しない');
+
+file_put_contents("{$mu}/zz-cache.php", "<?php\neval('add_action(\"wp_cache_gc_x\", function () {});');\n");
+wp("wp_schedule_event(time() + 600, 'hourly', 'wp_cache_gc_x');");
+$m = $cronCheck();
+check(count($m) === 1 && str_contains($m[0], '🔴') && str_contains($m[0], 'wp_cache_gc_x') && str_contains($m[0], 'eval() で作られた'), 'eval で作られた処理の定期実行を🔴緊急で通知');
+check(str_contains($m[0] ?? '', '1 時間ごと'), '実行の間隔を表示');
+check(str_contains($m[0] ?? '', '次回: ' . (new DateTime('@' . (time() + 600)))->setTimezone(new DateTimeZone('Asia/Tokyo'))->format('m/d H')), '次回の実行日時を日本時間で表示');
+echo "\n" . preg_replace('/^/m', '      | ', $m[0] ?? '') . "\n";
+
+@mkdir("{$site}/wp-content/uploads/2026", 0777, true);
+file_put_contents("{$site}/wp-content/uploads/2026/helper.php", "<?php\nfunction wpg_helper_job() {}\nadd_action('wp_media_cleanup', 'wpg_helper_job');\n");
+file_put_contents("{$mu}/zz-loader.php", "<?php\n@include WP_CONTENT_DIR . '/uploads/2026/helper.php';\n");
+wp("wp_schedule_event(time() + 600, 'twicedaily', 'wp_media_cleanup');");
+$m = $cronCheck();
+check(count($m) === 1 && str_contains($m[0], '🔴') && str_contains($m[0], 'wp-content/uploads/2026/helper.php:2'), 'uploads にあるコードの定期実行を🔴緊急で通知 (ファイルと行番号を表示)');
+
+wp("\$c = _get_cron_array(); \$c[time() + 120]['a3f9c2e1b7d4a6e8'][md5('x')] = ['schedule' => false, 'args' => ['https://evil.example/p.txt']]; _set_cron_array(\$c);");
+$m = $cronCheck();
+check(count($m) === 1 && str_contains($m[0], '🔴') && str_contains($m[0], '見つかりません') && str_contains($m[0], '引数に URL') && str_contains($m[0], 'ランダムな文字列') && str_contains($m[0], '1 回だけ'), 'DB に直接書き込まれた定期実行を🔴緊急で通知 (処理が見つからない・怪しい引数・ランダムな名前)');
+
+file_put_contents("{$mu}/zz-site.php", "<?php\nfunction mysite_cleanup() {}\nadd_action('mysite_cleanup', 'mysite_cleanup');\n");
+wp("wp_schedule_event(time() + 600, 'daily', 'mysite_cleanup');");
+$m = $cronCheck();
+check(count($m) === 1 && str_contains($m[0], '🟡') && str_contains($m[0], 'wp-content/mu-plugins/zz-site.php'), 'mu-plugins の処理の定期実行は🟡警告');
+check($cronCheck() === [], '同じ処理は二度通知しない');
+foreach (['zz-cache.php', 'zz-loader.php', 'zz-site.php'] as $f) {
+    unlink("{$mu}/{$f}");
+}
+
 section('Slack が落ちていたら後で再送');
 touch("{$slackLog}.down");
 wp("wp_insert_user(['user_login' => 'eve', 'user_pass' => wp_generate_password(), 'user_email' => 'eve@example.com', 'role' => 'administrator']);");
