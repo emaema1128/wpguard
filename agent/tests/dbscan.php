@@ -213,6 +213,26 @@ file_put_contents("{$site}/wp-config.php", str_replace("'nobody'", "'wp1'", (str
 $r = $app->dbScan(null, $t += 60);
 check(isset($r['site1']) && $app->db->siteState(1, 'db_error') === null, '直ったら検査を再開する');
 
+section('二要素認証の解除 (2fa-reset)');
+$root->exec("GRANT INSERT, DELETE ON site1.wp_usermeta TO 'wp1'@'%'");
+$uid = (int) $root->query("SELECT ID FROM site1.wp_users WHERE user_login = 'wp-support'")->fetchColumn();
+foreach (['wpguard_2fa_secret' => 'JBSWY3DPEHPK3PXP', 'wpguard_2fa_last_step' => '123', 'wpguard_2fa_recovery' => 'a:0:{}', 'wpguard_2fa_grace_start' => '1700000000', 'other_meta' => 'keep'] as $k => $v) {
+    $root->prepare('INSERT INTO site1.wp_usermeta (user_id, meta_key, meta_value) VALUES (?, ?, ?)')->execute([$uid, $k, $v]);
+}
+$app->resetTwoFactor('site1', 'wp-support');
+$meta = $root->query("SELECT meta_key, meta_value FROM site1.wp_usermeta WHERE user_id = {$uid}")->fetchAll(PDO::FETCH_KEY_PAIR);
+check(!isset($meta['wpguard_2fa_secret']) && !isset($meta['wpguard_2fa_recovery']) && !isset($meta['wpguard_2fa_last_step']), '二要素認証の設定を消す');
+check(($meta['wpguard_2fa_grace_start'] ?? null) === '1', '猶予期間は終わった扱いにする (次のログインで設定し直し)');
+check(($meta['wp_capabilities'] ?? null) !== null && ($meta['other_meta'] ?? null) === 'keep', 'ほかのユーザー情報には触れない');
+$m = $n->take();
+check(count($m) === 1 && str_contains($m[0], '二要素認証を解除しました') && str_contains($m[0], 'wp-support'), '解除したことを🟡警告で通知する');
+try {
+    $app->resetTwoFactor('site1', 'nobody');
+    check(false, '存在しないユーザー');
+} catch (RuntimeException $e) {
+    check(str_contains($e->getMessage(), 'ユーザーが見つかりません'), '存在しないユーザーはエラー');
+}
+
 exec('rm -rf ' . escapeshellarg($tmp));
 echo "\n{$passed} 件成功, {$failed} 件失敗\n";
 exit($failed === 0 ? 0 : 1);

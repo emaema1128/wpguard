@@ -27,6 +27,8 @@ final class Cli
           restore <隔離ID>                隔離したファイルを元に戻す
           db-scan [--site=NAME]          DB に埋め込まれたスクリプトなどを検査する (全件スキャンでも実行)
           digest                         全サイトの日次サマリーを Slack に送る
+          2fa-reset --site=NAME --user=LOGIN
+                                         二要素認証を解除する (スマホと予備コードの両方をなくしたとき)
           test-slack                     Slack にテスト通知を送る
           help                           このヘルプ
 
@@ -66,6 +68,7 @@ final class Cli
                 'test-slack' => $this->testSlack($app),
                 'digest' => $app->digest() ? 0 : 1,
                 'db-scan' => $this->dbScan($app, $opts),
+                '2fa-reset' => $this->resetTwoFactor($app, $opts),
                 default => $this->unknown($command),
             };
         } catch (\Throwable $e) {
@@ -226,6 +229,19 @@ final class Cli
             $table[] = [$name, (string) $r->files, (string) $c['critical'], (string) $c['warning'], (string) $c['info'], sprintf('%.1f', $r->seconds)];
         }
         self::printTable($table);
+        return 0;
+    }
+
+    private function resetTwoFactor(App $app, array $opts): int
+    {
+        $site = self::siteOpt($opts);
+        $user = isset($opts['user']) && $opts['user'] !== true ? (string) $opts['user'] : null;
+        if ($site === null || $user === null) {
+            fwrite(STDERR, "--site と --user を指定してください (例: wpguard 2fa-reset --site=example.com --user=tanaka)\n");
+            return 1;
+        }
+        $app->resetTwoFactor($site, $user);
+        fwrite(STDOUT, "{$site} の {$user} の二要素認証を解除しました。次回のログイン時に設定し直してもらいます。\n");
         return 0;
     }
 

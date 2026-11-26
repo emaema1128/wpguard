@@ -30,6 +30,14 @@ final class Config
     public $allowXmlrpc = false;
     /** @var bool */
     public $allowFileEdit = false;
+    /** @var bool */
+    public $twoFactor = true;
+    /** @var string[] roles that must use two-factor authentication */
+    public $twoFactorRoles = ['administrator'];
+    /** @var int */
+    public $twoFactorGraceDays = 7;
+    /** @var bool */
+    public $twoFactorAllowAppPasswords = false;
 
     public static function fromConstants(): self
     {
@@ -46,6 +54,11 @@ final class Config
         $c->trustedProxies = is_array($proxies) ? array_map('strval', $proxies) : array_filter(array_map('trim', explode(',', (string) $proxies)));
         $c->allowXmlrpc = (bool) self::constant('WPGUARD_ALLOW_XMLRPC', false);
         $c->allowFileEdit = (bool) self::constant('WPGUARD_ALLOW_FILE_EDIT', false);
+        $c->twoFactor = (bool) self::constant('WPGUARD_2FA', true);
+        $roles = self::constant('WPGUARD_2FA_ROLES', ['administrator']);
+        $c->twoFactorRoles = is_array($roles) ? array_map('strval', $roles) : array_filter(array_map('trim', explode(',', (string) $roles)));
+        $c->twoFactorGraceDays = max(0, (int) self::constant('WPGUARD_2FA_GRACE_DAYS', 7));
+        $c->twoFactorAllowAppPasswords = (bool) self::constant('WPGUARD_2FA_ALLOW_APP_PASSWORDS', false);
         return $c;
     }
 

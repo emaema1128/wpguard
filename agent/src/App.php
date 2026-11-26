@@ -220,6 +220,38 @@ final class App
         return $out;
     }
 
+    /**
+     * Turns off two-factor authentication for one user of one site (lost phone and recovery codes).
+     * The user must set it up again at the next login. This is the only place the agent writes to a site's database.
+     */
+    public function resetTwoFactor(string $siteName, string $login, ?\PDO $pdo = null): void
+    {
+        $site = $this->siteRow($siteName);
+        $c = WpConfigReader::read((string) $site['path']);
+        if ($c === null || !preg_match('/^[A-Za-z0-9_]+$/', $c['prefix'])) {
+            throw new \RuntimeException('wp-config.php から DB の接続情報を読み取れません');
+        }
+        $pdo ??= new \PDO(WpConfigReader::dsn($c), $c['user'], $c['password'], [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION, \PDO::ATTR_TIMEOUT => 5]);
+        $p = $c['prefix'];
+        $st = $pdo->prepare("SELECT ID FROM {$p}users WHERE user_login = ?");
+        $st->execute([$login]);
+        $id = $st->fetchColumn();
+        if ($id === false) {
+            throw new \RuntimeException("ユーザーが見つかりません: {$login}");
+        }
+        $pdo->beginTransaction();
+        $pdo->prepare("DELETE FROM {$p}usermeta WHERE user_id = ? AND meta_key IN ('wpguard_2fa_secret', 'wpguard_2fa_pending', 'wpguard_2fa_last_step', 'wpguard_2fa_recovery', 'wpguard_2fa_grace_start')")->execute([$id]);
+        // Grace period already over: the user sets it up again on the login screen.
+        $pdo->prepare("INSERT INTO {$p}usermeta (user_id, meta_key, meta_value) VALUES (?, 'wpguard_2fa_grace_start', '1')")->execute([$id]);
+        $pdo->commit();
+
+        $this->logger->info("二要素認証を解除しました: {$siteName} {$login}");
+        $this->notifications->notifyEvent(Severity::Warning, $siteName, '二要素認証を解除しました (サーバーでの操作)', sprintf(
+            "👤 ユーザー: `%s`\n次回のログイン時に、ログイン画面で設定し直してもらいます。本人からの依頼でなければ、すぐに確認してください。",
+            str_replace('`', "'", $login),
+        ));
+    }
+
     /** Sends the daily digest. Returns false when Slack could not be reached. */
     public function digest(?int $now = null): bool
     {

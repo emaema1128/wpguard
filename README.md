@@ -23,7 +23,7 @@ VPS 上の複数の WordPress サイトを監視し、マルウェアの設置�
 
 **DB の検査について**: 接続情報は各サイトの `wp-config.php` から読み取ります (実行はしません)。初回の検査では、すでに埋め込まれている外部スクリプト (アクセス解析や広告など) は記録だけして通知しません。それ以降に新しいドメインのスクリプトが埋め込まれたら通知します。よく使われるサービス (Google アナリティクスなど) は `db_script_allow` で許可済みです。
 
-**まだできないこと**: 二要素認証 (各サイトのプラグインに追加予定)。
+二要素認証やログイン保護などは、各サイトのプラグインが担当します ([plugin/README.md](plugin/README.md))。
 
 **照合できないもの**: テーマと、公式リポジトリにない有料プラグインは比べる相手がないため、場所による判定とパターン検出だけになります (更新すると 🟡警告で通知されます)。
 
@@ -128,6 +128,7 @@ wpguard ack 12 13                    # 確認済みにする
 wpguard ack --site=example.com --all
 wpguard baseline --site=example.com  # 現在の状態を正常として記録し直す (有料プラグインやテーマの更新後など)
 wpguard db-scan --site=example.com   # DB だけを今すぐ検査する
+wpguard 2fa-reset --site=example.com --user=tanaka   # 二要素認証を解除する (スマホと予備コードを両方なくしたとき)
 wpguard help
 ```
 

@@ -37,6 +37,16 @@ $wpguard_defaults = [
 
     // 管理画面でのファイル編集を許可するか
     'WPGUARD_ALLOW_FILE_EDIT' => false,
+
+    // 二要素認証 (認証アプリの 6 桁のコード)
+    'WPGUARD_2FA' => true,
+    // 必須にする権限グループ (それ以外のユーザーも、自分で設定すれば使えます)
+    'WPGUARD_2FA_ROLES' => ['administrator'],
+    // 導入してから必須になるまでの猶予 (日)。0 にすると、すぐに必須になります
+    'WPGUARD_2FA_GRACE_DAYS' => 7,
+    // 二要素認証を使う人のアプリケーションパスワード (REST API 用の別のパスワード) を許可するか
+    // 許可すると、それだけで二要素認証なしに REST API を使えます。外部サービスとの連携で必要なサイトだけ true に
+    'WPGUARD_2FA_ALLOW_APP_PASSWORDS' => false,
 ];
 
 foreach ($wpguard_defaults as $wpguard_name => $wpguard_value) {

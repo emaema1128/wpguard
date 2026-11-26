@@ -411,6 +411,88 @@ foreach (['zz-cache.php', 'zz-loader.php', 'zz-site.php'] as $f) {
     unlink("{$mu}/{$f}");
 }
 
+section('P-07: 二要素認証');
+require_once "{$pluginSrc}/wpguard-sentinel/src/Totp.php";
+/** Value of the last logged-in cookie the response sets ('' when it clears it, null when none). */
+$authCookie = static function (array $r): ?string {
+    preg_match_all('/^Set-Cookie: wordpress_logged_in_[^=]+=([^;]*)/mi', $r['headers'], $m);
+    return $m[1] === [] ? null : trim(urldecode(end($m[1])));
+};
+$location = static fn (array $r): string => preg_match('/^Location: (\S+)/mi', $r['headers'], $m) ? $m[1] : '';
+$token = static fn (string $loc): string => preg_match('/wpguard_token=([a-f0-9]+)/', $loc, $m) ? $m[1] : '';
+$twofa = static fn (string $tok, string $step, string $code, string $ip) => http('POST', '/wp-login.php?action=wpguard_2fa', ['ip' => $ip, 'form' => ['wpguard_token' => $tok, 'wpguard_step' => $step, 'wpguard_code' => $code]]);
+
+$r = login('admin', ADMIN_PASS, '198.51.100.7');
+check($r['status'] === 302 && $authCookie($r) !== '' && !str_contains($location($r), 'wpguard_2fa'), '猶予期間中は、設定していなくてもログインできる');
+wp("update_user_meta(1, 'wpguard_2fa_grace_start', time() - 8 * DAY_IN_SECONDS);");
+
+$r = login('admin', ADMIN_PASS, '198.51.100.7');
+$tok = $token($location($r));
+check($r['status'] === 302 && $tok !== '' && $authCookie($r) === '', '猶予期間を過ぎたら、パスワードが正しくてもログインを止めて設定画面へ (ログイン状態は消す)');
+$page = http('GET', '/wp-login.php?action=wpguard_2fa&wpguard_token=' . $tok, ['ip' => '198.51.100.7']);
+preg_match('/user-select:all">([A-Z2-7 ]{20,})<\/code>/', $page['body'], $sm);
+$secret = str_replace(' ', '', $sm[1] ?? '');
+check(strlen($secret) === 32 && str_contains($page['body'], 'この設定は必須です'), '設定キーと手順を表示する');
+check(str_contains($page['body'], 'otpauth://totp/'), 'スマホでタップすればアプリに追加できるリンクも表示する');
+$r = $twofa($tok, 'enroll', '000000', '198.51.100.21');
+check(str_contains($r['body'], 'コードが正しくありません') && $authCookie($r) === null, '違うコードでは設定できない');
+$step = intdiv(time(), 30);
+$r = $twofa($tok, 'enroll', WPGuard\Sentinel\Totp::code($secret, $step), '198.51.100.7');
+preg_match('/<pre[^>]*>([a-z0-9\-\n]+)<\/pre>/', $r['body'], $rm);
+$codes = isset($rm[1]) ? explode("\n", trim($rm[1])) : [];
+check(count($codes) === 10 && preg_match('/^[a-z0-9]{4}-[a-z0-9]{4}$/', $codes[0] ?? '') === 1, '正しいコードで設定でき、予備コードを 10 個表示する');
+check($authCookie($r) === null, '(予備コードを見ている間は、まだログインしていない)');
+$r = $twofa($tok, 'finish', '', '198.51.100.7');
+check($r['status'] === 302 && ($authCookie($r) ?? '') !== '', '「ログインを続ける」でログインできる');
+slack();
+
+$r = login('admin', ADMIN_PASS, '198.51.100.7');
+$tok = $token($location($r));
+$page = http('GET', '/wp-login.php?action=wpguard_2fa&wpguard_token=' . $tok, ['ip' => '198.51.100.7']);
+check($tok !== '' && $authCookie($r) === '' && str_contains($page['body'], '確認コードの入力'), '設定後は、毎回パスワードの次に確認コードを求める');
+$r = $twofa($tok, 'code', WPGuard\Sentinel\Totp::code($secret, $step), '198.51.100.22');
+check(str_contains($r['body'], 'コードが正しくありません'), '一度使ったコードは使えない (盗み見たコードの再利用を防ぐ)');
+$r = $twofa($tok, 'code', WPGuard\Sentinel\Totp::code($secret, $step + 1), '198.51.100.7');
+check($r['status'] === 302 && ($authCookie($r) ?? '') !== '', '新しいコードならログインできる');
+
+$r = login('admin', ADMIN_PASS, '198.51.100.7');
+$tok = $token($location($r));
+$r = $twofa($tok, 'code', strtoupper($codes[0]), '198.51.100.7');
+$m = slack();
+check($r['status'] === 302 && ($authCookie($r) ?? '') !== '', '予備コードでもログインできる (大文字でも可)');
+check(count($m) === 1 && str_contains($m[0], '予備コードでログインしました') && str_contains($m[0], '残りの予備コード: 9 個'), '予備コードを使ったら🟡警告で知らせる');
+$r = login('admin', ADMIN_PASS, '198.51.100.7');
+$r = $twofa($token($location($r)), 'code', $codes[0], '198.51.100.23');
+check(str_contains($r['body'], 'コードが正しくありません'), '使った予備コードは二度と使えない');
+
+$r = login('admin', ADMIN_PASS, '198.51.100.7');
+$tok = $token($location($r));
+foreach (['000001', '000002', '000003'] as $bad) {
+    $twofa($tok, 'code', $bad, '203.0.113.50');
+}
+$m = slack();
+$r = $twofa($tok, 'code', WPGuard\Sentinel\Totp::code($secret, $step + 2), '203.0.113.50');
+check(str_contains($r['body'], '一時的にログインできません') && $authCookie($r) === null, 'コードを 3 回間違えた IP はロックされ、正しいコードでも入れない (総当たり対策)');
+check(count($m) === 1 && str_contains($m[0], 'ロックしました'), 'ロックを Slack に通知する');
+$r = login('admin', ADMIN_PASS, '198.51.100.7');
+$tok = $token($location($r));
+foreach (range(60, 64) as $i) {
+    $last = $twofa($tok, 'code', '999999', "198.51.100.{$i}");
+}
+check(str_contains($location($last), 'wpguard_expired'), '1 回のログインで 5 回間違えたら、パスワードの入力からやり直し');
+check(http('GET', '/wp-login.php?action=wpguard_2fa&wpguard_token=' . str_repeat('ab', 32))['status'] === 302, '偽のトークンでは確認画面に入れない');
+slack();
+
+wp("wp_set_password('carol-pass-1', get_user_by('login', 'carol')->ID);");
+$r = login('carol', 'carol-pass-1', '198.51.100.30');
+check($r['status'] === 302 && ($authCookie($r) ?? '') !== '' && !str_contains($location($r), 'wpguard_2fa'), '管理者以外 (投稿者) には求めない');
+check(wp("echo WPGuard\\Sentinel\\TwoFactor::required(get_user_by('login', 'carol')) ? 'yes' : 'no';") === 'no', '(必須なのは管理者だけ)');
+// (WordPress itself only offers application passwords over HTTPS, so ask the filter directly.)
+$appPw = static fn (string $login): string => wp("echo apply_filters('wp_is_application_passwords_available_for_user', true, get_user_by('login', '{$login}')) ? 'yes' : 'no';");
+check($appPw('admin') === 'no', '管理者はアプリケーションパスワードを使えない (二要素認証の抜け道をふさぐ)');
+check($appPw('carol') === 'yes', '管理者以外は、これまでどおり使える');
+slack();
+
 section('Slack が落ちていたら後で再送');
 touch("{$slackLog}.down");
 wp("wp_insert_user(['user_login' => 'eve', 'user_pass' => wp_generate_password(), 'user_email' => 'eve@example.com', 'role' => 'administrator']);");
