@@ -253,6 +253,7 @@ check(count($m) === 1 && str_contains($m[0]->text, '再び見つかりました'
 
 require __DIR__ . '/step2.php';
 require __DIR__ . '/quarantine.php';
+require __DIR__ . '/digest.php';
 
 // ---------------------------------------------------------------- cleanup
 exec('rm -rf ' . escapeshellarg($tmp));

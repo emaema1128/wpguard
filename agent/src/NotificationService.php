@@ -62,6 +62,15 @@ final class NotificationService
         }
     }
 
+    public function sendRaw(Message $message): bool
+    {
+        $ok = $this->notifier->send($message);
+        if (!$ok) {
+            $this->logger->error('Slack 通知に失敗しました: ' . strtok($message->text, "\n"));
+        }
+        return $ok;
+    }
+
     public function notifyEvent(Severity $severity, string $siteName, string $title, string $body = ''): bool
     {
         $text = $this->header($severity, $siteName) . "\n*" . self::esc($title) . '*';

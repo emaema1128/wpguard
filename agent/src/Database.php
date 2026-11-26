@@ -296,7 +296,44 @@ final class Database
         $st->execute([$status, $now, $siteId, $path, $from]);
     }
 
+    /** @return array<int,array<string,int>> site id => severity => count, for findings since a time */
+    public function findingCountsSince(int $since): array
+    {
+        $st = $this->pdo->prepare('SELECT site_id, severity, COUNT(*) AS n FROM findings WHERE detected_at >= ? GROUP BY site_id, severity');
+        $st->execute([$since]);
+        return self::bySiteSeverity($st->fetchAll());
+    }
+
+    /** @return array<int,array<string,int>> site id => severity => count, for open findings */
+    public function openFindingCounts(): array
+    {
+        $rows = $this->pdo->query("SELECT site_id, severity, COUNT(*) AS n FROM findings WHERE status = 'open' GROUP BY site_id, severity")->fetchAll();
+        return self::bySiteSeverity($rows);
+    }
+
+    /** @return array<int,array<string,int>> */
+    private static function bySiteSeverity(array $rows): array
+    {
+        $out = [];
+        foreach ($rows as $r) {
+            $out[(int) $r['site_id']][$r['severity']] = (int) $r['n'];
+        }
+        return $out;
+    }
+
     // ---- quarantine ----
+
+    /** @return array{recent:int,held:int} */
+    public function quarantineCounts(int $since): array
+    {
+        $st = $this->pdo->prepare('SELECT
+            SUM(CASE WHEN quarantined_at >= ? THEN 1 ELSE 0 END) AS recent,
+            SUM(CASE WHEN restored_at IS NULL AND purged_at IS NULL THEN 1 ELSE 0 END) AS held
+            FROM quarantine');
+        $st->execute([$since]);
+        $r = $st->fetch();
+        return ['recent' => (int) ($r['recent'] ?? 0), 'held' => (int) ($r['held'] ?? 0)];
+    }
 
     /** @param array<string,mixed> $row */
     public function insertQuarantine(array $row): int

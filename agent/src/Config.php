@@ -23,6 +23,7 @@ final class Config
         'dedupe_hours' => 6,
         'aggregate_threshold' => 10,
         'quarantine_days' => 30,
+        'stale_hours' => 3,
         'slack' => [
             'webhook_url' => '',
             'webhooks' => [],

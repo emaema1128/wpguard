@@ -59,6 +59,9 @@ return [
     // 隔離したファイルを保管する日数 (過ぎたら全件スキャンのときに削除します)
     'quarantine_days' => 30,
 
+    // 日次サマリーで「スキャンが止まっている」と知らせるまでの時間
+    'stale_hours' => 3,
+
     'slack' => [
         // Slack の Incoming Webhook URL
         'webhook_url' => '',

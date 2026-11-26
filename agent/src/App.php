@@ -162,6 +162,14 @@ final class App
         return $results;
     }
 
+    /** Sends the daily digest. Returns false when Slack could not be reached. */
+    public function digest(?int $now = null): bool
+    {
+        $now ??= time();
+        $this->syncSites($now);
+        return $this->notifications->sendRaw((new Digest($this->db, $this->config))->build($now));
+    }
+
     public function quarantine(): Quarantine
     {
         return $this->quarantine ??= new Quarantine($this->db, (string) $this->config->get('data_dir') . '/quarantine');

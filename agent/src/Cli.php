@@ -25,6 +25,7 @@ final class Cli
                                          指定したファイルを隔離する
           quarantine --list              隔離したファイルの一覧
           restore <隔離ID>                隔離したファイルを元に戻す
+          digest                         全サイトの日次サマリーを Slack に送る
           test-slack                     Slack にテスト通知を送る
           help                           このヘルプ
 
@@ -62,6 +63,7 @@ final class Cli
                 'quarantine' => $this->quarantine($app, $args, $opts),
                 'restore' => $this->restore($app, $args),
                 'test-slack' => $this->testSlack($app),
+                'digest' => $app->digest() ? 0 : 1,
                 default => $this->unknown($command),
             };
         } catch (\Throwable $e) {
