@@ -62,6 +62,10 @@ return [
     // 日次サマリーで「スキャンが止まっている」と知らせるまでの時間
     'stale_hours' => 3,
 
+    // WPGuard Sentinel (サイト用プラグイン) の正規のファイルの一覧 (plugin/install.sh が作る)
+    // mu-plugins の WPGuard のファイルがこれと一致すれば通知せず、違えば改ざんとして通知します
+    'sentinel_manifest' => '/etc/wpguard/sentinel.sha256',
+
     // 各サイトの DB を検査する (全件スキャンのとき。読み取りだけで、書き換えはしません)
     'db_scan' => true,
     'db_timeout' => 5,

@@ -55,7 +55,7 @@ final class App
             new Hasher((int) $config->get('max_hash_bytes')),
             new Classifier(),
             PatternScanner::fromFile($rulesFile, (int) $config->get('max_scan_bytes')),
-            new OfficialVerifier($checksums),
+            new OfficialVerifier($checksums, (string) $this->config->get('sentinel_manifest')),
             (array) $config->get('exclude'),
         );
     }

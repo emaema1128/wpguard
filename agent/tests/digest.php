@@ -60,6 +60,16 @@ $app4->digest($t4 + 6 * 3600 + 60);
 $text = $n4->take()[0]->text ?? '';
 check(str_contains($text, '*gamma*: ⚠️') && str_contains($text, '見つかりません') && str_contains($text, '監視中 2 サイト'), '見つからなくなったサイトを知らせ、監視中の数から外す');
 
+section('日次サマリー: 対応済みの検知だけなら「異常なし」');
+rename("{$tmp}/gamma-moved", "{$www4}/gamma");
+$app4->scan(false, null, $t4 + 6 * 3600 + 120);
+$app4->db->ackAllFindings(null, $t4);
+$n4->take();
+$app4->digest($t4 + 6 * 3600 + 180);
+$text = $n4->take()[0]->text ?? '';
+check(str_contains($text, '✅') && str_contains($text, '異常はありません') && str_contains($text, '過去 24 時間: 検知 🔴1 🟡1'), '検知をすべて確認済みにしたら ✅ (24 時間の件数は合計の行にだけ出す)');
+echo "\n" . preg_replace('/^/m', '      | ', $text) . "\n";
+
 section('日次サマリー: 送信失敗');
 $n4->fail = true;
 check($app4->digest($t4 + 7 * 3600) === false, '送れなかったら失敗を返す (cron のログに残る)');

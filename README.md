@@ -5,6 +5,8 @@ VPS 上の複数の WordPress サイトを監視し、マルウェアの設置�
 - `agent/` … 監視エージェント (サーバー側で cron 実行)。ファイルの改ざんとマルウェアを検知する
 - `plugin/` … 各サイトに入れるプラグイン (mu-plugin)。ログイン保護・管理者の監視・防御設定。詳しくは [plugin/README.md](plugin/README.md)
 
+**サーバーに導入するときは [docs/deploy.md](docs/deploy.md) の手順で進めてください。** 以下は監視エージェントの詳しい説明です。
+
 ## 監視エージェントでできること
 
 | 機能 | 内容 |
@@ -42,15 +44,8 @@ sudo apt-get install -y php-cli php-sqlite3 php-curl php-mbstring php-mysql
 ## インストール
 
 ```bash
-sudo cp -r agent /opt/wpguard
-sudo chown -R root:root /opt/wpguard
-sudo chmod -R go-w /opt/wpguard
-
-sudo cp /opt/wpguard/config.example.php /opt/wpguard/config.php
-sudo chmod 600 /opt/wpguard/config.php
+sudo ./agent/install.sh                  # /opt/wpguard、コマンド、cron を入れる (更新も同じ)
 sudo vi /opt/wpguard/config.php          # roots と slack.webhook_url を設定
-
-sudo ln -s /opt/wpguard/bin/wpguard /usr/local/bin/wpguard
 ```
 
 ### 動作確認
@@ -65,7 +60,7 @@ sudo wpguard scan --dry-run -v     # 初回: ベースライン作成 (通知は
 
 ### cron の設定
 
-`/etc/cron.d/wpguard`:
+`install.sh` が `/etc/cron.d/wpguard` に次の内容を置きます。
 
 ```
 0 * * * *   root  nice -n 19 ionice -c3 /opt/wpguard/bin/wpguard scan
@@ -80,8 +75,10 @@ sudo wpguard scan --dry-run -v     # 初回: ベースライン作成 (通知は
 
 uploads 内で PHP が実行されないようにします。`.htaccess` は攻撃者に書き換えられる可能性があるため、Apache 本体の設定に入れてください。
 
+[`docs/apache/wpguard-uploads.conf`](docs/apache/wpguard-uploads.conf) をそのまま使えます (導入手順は [docs/deploy.md](docs/deploy.md) の段階 3)。
+
 ```apache
-# /etc/apache2/conf-available/wpguard.conf
+# /etc/apache2/conf-available/wpguard-uploads.conf
 
 # 1. uploads の .htaccess では、アクセス制限 (Require / deny from all) だけを許可する。
 #    攻撃者が「.jpg を PHP として実行する」設定 (AddHandler など) を書いても効かない。
@@ -117,7 +114,7 @@ Apache 2.4.54 + PHP 7.4 で確認した結果:
 この設定がない場合、攻撃者の `.htaccess` で `shell.php` も `shell.jpg` も実行されることを確認しています。
 
 ```bash
-sudo a2enconf wpguard && sudo apachectl configtest && sudo systemctl reload apache2
+sudo a2enconf wpguard-uploads && sudo apachectl configtest && sudo systemctl reload apache2
 ```
 
 ## 使い方

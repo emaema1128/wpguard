@@ -54,7 +54,15 @@ final class Classifier
         $message = $what . 'が' . self::VERBS[$kind];
         $isPlugin = str_starts_with($path, 'wp-content/plugins/');
 
-        if ($official === OfficialVerifier::MATCH) {
+        if (OfficialVerifier::isSentinel($path) && $official !== null) {
+            [$severity, $rule, $message] = match ($official) {
+                OfficialVerifier::MATCH => [Severity::Info, 'sentinel', 'WPGuard Sentinel の正規のファイルが' . self::VERBS[$kind]],
+                OfficialVerifier::MISMATCH => [Severity::Critical, 'sentinel-modified', 'WPGuard Sentinel (サイト用プラグイン) のファイルが改ざんされています'],
+                default => [Severity::Critical, 'sentinel-extra', 'WPGuard Sentinel のディレクトリに、正規でないファイルがあります'],
+            };
+        } elseif ($official === OfficialVerifier::MATCH && $path === OfficialVerifier::UPLOADS_HTACCESS) {
+            [$severity, $rule, $message] = [Severity::Info, 'sentinel', 'WPGuard Sentinel の uploads 保護設定 (.htaccess) が' . self::VERBS[$kind]];
+        } elseif ($official === OfficialVerifier::MATCH) {
             [$severity, $rule, $message] = [Severity::Info, 'official', "{$message} (公式配布版と一致: 正規の更新)"];
         } elseif ($official === OfficialVerifier::MISMATCH) {
             [$severity, $rule, $message] = $isPlugin

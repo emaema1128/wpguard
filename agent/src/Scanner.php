@@ -125,6 +125,10 @@ final class Scanner
     private function report(Site $site, ScanResult $result, string $kind, string $rel, string $abs, string $type, ?string $hash, int $now): void
     {
         [$match, $official] = $this->inspect($rel, $abs, $type, $hash);
+        if ($official === OfficialVerifier::MATCH && $match === null) {
+            // The file is back to the official contents (e.g. a cleaned or reinstalled file): earlier alerts about it are settled.
+            $this->db->setFindingStatus((int) $site->id, $rel, 'acked', $now);
+        }
         $this->store($site, $result, $this->classifier->classify($kind, $rel, $type, $hash, $match, $official), $now);
     }
 

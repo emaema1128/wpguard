@@ -10,6 +10,8 @@ use WPGuard\Notifier\Message;
  * N-04: one daily message about every site.
  *
  * Sites without problems are only counted, so the message stays short with many sites.
+ * A site "needs attention" when it has open findings, its scans stopped, or it disappeared;
+ * detections the team already handled only show up in the 24-hour totals.
  * It also works as a heartbeat: if the morning digest does not arrive, the agent is down.
  */
 final class Digest
@@ -59,7 +61,8 @@ final class Digest
             if ($openTotal > 0) {
                 $notes[] = sprintf('未対応 %s', self::counts($o));
             }
-            if (($r['critical'] ?? 0) + ($r['warning'] ?? 0) > 0) {
+            // Detections that were already handled (acked, quarantined) do not make a site need attention.
+            if ($notes !== [] && ($r['critical'] ?? 0) + ($r['warning'] ?? 0) > 0) {
                 $notes[] = sprintf('24 時間の検知 %s', self::counts($r));
             }
 

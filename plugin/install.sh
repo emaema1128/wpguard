@@ -40,6 +40,17 @@ while IFS= read -r version; do
   count=$((count + 1))
 done < "$LIST"
 
+# The monitoring agent compares the deployed files with this list, so installing or updating
+# the plugin is not reported as a new mu-plugin, while any change to it still is.
+MANIFEST=/etc/wpguard/sentinel.sha256
+if [ -z "$DRY" ]; then
+  mkdir -p /etc/wpguard
+  (cd "$SRC" && find wpguard-sentinel wpguard-sentinel.php -type f -print0 | sort -z | xargs -0 sha256sum) > "$MANIFEST.tmp"
+  mv "$MANIFEST.tmp" "$MANIFEST"
+  chown root:root "$MANIFEST"
+  chmod 644 "$MANIFEST"
+fi
+
 echo "${count} サイトに配置しました${DRY:+ (dry-run のため実際には何もしていません)}"
 if [ ! -r /etc/wpguard/sentinel.php ]; then
   echo "注意: /etc/wpguard/sentinel.php がありません。sentinel.example.php を参考に作成してください。" >&2

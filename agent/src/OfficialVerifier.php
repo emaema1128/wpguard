@@ -20,14 +20,63 @@ final class OfficialVerifier
     public const MISMATCH = 'mismatch';
     public const EXTRA = 'extra';
 
+    public const SENTINEL_PREFIX = 'wp-content/mu-plugins/wpguard-sentinel';
+    public const UPLOADS_HTACCESS = 'wp-content/uploads/.htaccess';
+    /** The rules WPGuard Sentinel writes to uploads/.htaccess (comments around them vary by language). */
+    private const SENTINEL_HTACCESS = [
+        '<FilesMatch "\.(?i:php[0-9]?|phtml|pht|phar|phps|inc)$">',
+        'Require all denied',
+        '</FilesMatch>',
+    ];
+
+    /** @var array<string,string>|null relative path inside mu-plugins => sha256 */
+    private ?array $manifest = null;
+
     private ?Site $site = null;
     private ?array $core = null;
     private bool $coreLoaded = false;
     /** @var array<string,?array> slug => checksums */
     private array $plugins = [];
 
-    public function __construct(private ChecksumProvider $provider)
+    public function __construct(private ChecksumProvider $provider, private string $manifestFile = '')
     {
+    }
+
+    public static function isSentinel(string $rel): bool
+    {
+        return $rel === self::SENTINEL_PREFIX . '.php' || str_starts_with($rel, self::SENTINEL_PREFIX . '/');
+    }
+
+    /** @return array<string,string>|null */
+    private function manifest(): ?array
+    {
+        if ($this->manifest === null) {
+            $this->manifest = [];
+            $lines = $this->manifestFile !== '' ? @file($this->manifestFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : false;
+            foreach ($lines ?: [] as $line) {
+                if (preg_match('/^([a-f0-9]{64})\s+\*?(.+)$/', $line, $m)) {
+                    $this->manifest[$m[2]] = $m[1];
+                }
+            }
+        }
+        return $this->manifest === [] ? null : $this->manifest;
+    }
+
+    private static function isSentinelHtaccess(string $abs): bool
+    {
+        $src = @file_get_contents($abs, false, null, 0, 64 * 1024);
+        if ($src === false) {
+            return false;
+        }
+        $rules = [];
+        // Not \R: without the u flag it also splits on byte 0x85, which occurs inside Japanese characters.
+        foreach (preg_split('/\r\n|\n|\r/', $src) ?: [] as $line) {
+            $line = trim($line);
+            if ($line !== '' && $line[0] !== '#') {
+                $rules[] = $line;
+            }
+        }
+        return $rules === self::SENTINEL_HTACCESS;
     }
 
     public function forSite(Site $site): void
@@ -47,6 +96,21 @@ final class OfficialVerifier
     {
         if ($this->site === null) {
             return null;
+        }
+
+        if (self::isSentinel($rel)) {
+            $manifest = $this->manifest();
+            if ($manifest === null) {
+                return null; // installed without plugin/install.sh: judged by location as before
+            }
+            $key = substr($rel, strlen('wp-content/mu-plugins/'));
+            if (!isset($manifest[$key])) {
+                return self::EXTRA;
+            }
+            return $sha256 !== null && hash_equals($manifest[$key], $sha256) ? self::MATCH : self::MISMATCH;
+        }
+        if ($rel === self::UPLOADS_HTACCESS && self::isSentinelHtaccess($abs)) {
+            return self::MATCH;
         }
 
         if (preg_match('#^wp-content/plugins/([^/]+)/(.+)$#', $rel, $m)) {

@@ -24,6 +24,7 @@ final class Config
         'aggregate_threshold' => 10,
         'quarantine_days' => 30,
         'stale_hours' => 3,
+        'sentinel_manifest' => '/etc/wpguard/sentinel.sha256',
         'db_scan' => true,
         'db_timeout' => 5,
         'db_script_allow' => [
