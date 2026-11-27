@@ -29,7 +29,7 @@ VPS (Debian / Ubuntu、Apache) に WPGuard を入れる手順です。上から�
 
 - [ ] Slack の Incoming Webhook URL (通知を受けるチャンネル)
 - [ ] サーバーに root (sudo) で入れるアカウント
-- [ ] サーバー上の WPGuard のリポジトリ: `sudo git clone <リポジトリ> /root/wpguard`
+- [ ] サーバー上の WPGuard のリポジトリ (下の「リポジトリをサーバーに置く」)
 - [ ] 各サイトの管理者の一覧 (二要素認証の連絡用)
 - [ ] 次のサイトの洗い出し (段階 5 で使う)
   - Jetpack や WordPress のスマホアプリを使っているサイト
@@ -37,6 +37,26 @@ VPS (Debian / Ubuntu、Apache) に WPGuard を入れる手順です。上から�
   - ほかのサイトに iframe で埋め込んで見せているサイト
 
 サーバーから `api.wordpress.org` と `downloads.wordpress.org` (公式チェックサムの取得)、`hooks.slack.com` (通知) に HTTPS で接続できる必要があります。
+
+### リポジトリをサーバーに置く
+
+リポジトリ (https://github.com/emaema1128/wpguard) は非公開なので、サーバーに「読み取り専用の鍵 (デプロイキー)」を作って GitHub に登録します。この鍵では読むことしかできず、ほかのリポジトリにも使えません。
+
+```bash
+sudo mkdir -p -m 700 /root/.ssh
+sudo ssh-keygen -t ed25519 -N '' -C "wpguard-deploy@$(hostname)" -f /root/.ssh/wpguard_deploy
+sudo cat /root/.ssh/wpguard_deploy.pub      # 表示された 1 行をコピーする
+```
+
+GitHub のリポジトリの「Settings」→「Deploy keys」→「Add deploy key」に貼り付けます (Title はサーバーの名前、「Allow write access」はチェックしない)。
+
+```bash
+sudo GIT_SSH_COMMAND='ssh -i /root/.ssh/wpguard_deploy -o IdentitiesOnly=yes' \
+  git clone git@github.com:emaema1128/wpguard.git /root/wpguard
+sudo git -C /root/wpguard config core.sshCommand 'ssh -i /root/.ssh/wpguard_deploy -o IdentitiesOnly=yes'   # 以後の git pull でも同じ鍵を使う
+```
+
+初めて接続するときに `Are you sure you want to continue connecting` と聞かれたら `yes` と答えます。
 
 ---
 
