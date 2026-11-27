@@ -69,9 +69,17 @@ sudo vi /opt/wpguard/config.php
 ```bash
 sudo wpguard test-slack     # Slack に「テスト通知です」が届く
 sudo wpguard sites          # すべてのサイトが一覧に出る
+timedatectl | grep 'Time zone'   # Asia/Tokyo になっている
 ```
 
 サイトが足りないときは、`roots` と `discovery_max_depth` を見直してください。
+
+cron はサーバーのタイムゾーンで動きます。VPS は初期設定が UTC のことが多く、そのままだと日次サマリーは日本時間の 18 時、全件スキャンは昼の 12 時半に動きます。日本時間にするには次のようにします (Apache も再起動するので、ログの時刻も日本時間になります)。
+
+```bash
+sudo timedatectl set-timezone Asia/Tokyo
+sudo systemctl restart cron apache2
+```
 
 ---
 

@@ -72,3 +72,11 @@ if [ -n "$NEW_CONFIG" ]; then
 else
   echo "設定ファイル ($DEST/config.php) はそのままです。新しい設定項目は $DEST/config.example.php を見てください。"
 fi
+
+# cron runs in the server's time zone: on a UTC server "9:00" is 18:00 in Japan.
+TZ_NAME=$(readlink /etc/localtime 2>/dev/null | sed -n 's#.*zoneinfo/##p')
+if [ -n "$TZ_NAME" ] && [ "$TZ_NAME" != "Asia/Tokyo" ]; then
+  echo
+  echo "注意: サーバーのタイムゾーンが $TZ_NAME です。cron の時刻 (日次サマリーの 9:00 など) はこのタイムゾーンで動きます。"
+  echo "      日本時間にするには: sudo timedatectl set-timezone Asia/Tokyo && sudo systemctl restart cron apache2"
+fi
