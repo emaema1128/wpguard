@@ -75,10 +75,15 @@ sudo cp docs/modsecurity/wpguard.conf /etc/modsecurity/wpguard.conf
 
 ### 反映する
 
+初めて入れたときは、`reload` ではなく `restart` にします。`reload` だと ModSecurity の一部が準備されず、エラーログに `Global mutex was not created` が出続けます (IP ごとの集計などが動きません)。2 回目からの設定変更は `reload` で大丈夫です。
+
 ```bash
 sudo apache2ctl configtest          # Syntax OK を確認
-sudo systemctl reload apache2
+sudo systemctl restart apache2
+sudo grep -c 'Global mutex was not created' /var/log/apache2/error.log   # 再起動のあとに増えなければ OK
 ```
+
+管理画面を開くと、エラーログに `Execution error - PCRE limits exceeded` が出ることがあります。大きなページの応答を調べるルール (RESPONSE-951) が途中であきらめたという記録で、リクエストは遮断されません。そのままにしてかまいません。
 
 ### 動いているか確かめる
 
